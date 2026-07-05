@@ -3,72 +3,128 @@
  * Deep link: sonaai://auth/callback
  *
  * After Google (or any OAuth provider) redirects back to the app,
- * Expo Router resolves this route. The Firebase client handles
- * the OAuth token exchange. We simply wait for the auth state
- * to settle then redirect to the main app.
+ * Expo Router resolves this route. Firebase processes the credential
+ * exchange. We wait for the auth state to settle then redirect.
  */
 
-import React, { useEffect } from 'react';
-import { View, ActivityIndicator, Text, StyleSheet } from 'react-native';
+import React, { useEffect, useRef } from 'react';
+import { View, Text, StyleSheet, Animated } from 'react-native';
 import { useRouter } from 'expo-router';
 import { LinearGradient } from 'expo-linear-gradient';
 import { MaterialIcons } from '@expo/vector-icons';
+import { StatusBar } from 'expo-status-bar';
+import { useTheme } from '@/hooks/useTheme';
 import { useAuthStore } from '@/stores/useAuthStore';
+import { FontSize, FontWeight, Spacing, BorderRadius } from '@/constants/theme';
 
 export default function AuthCallbackScreen() {
+  const { colors, isDark } = useTheme();
   const router = useRouter();
   const { initialize } = useAuthStore();
 
+  const spinAnim = useRef(new Animated.Value(0)).current;
+  const fadeAnim = useRef(new Animated.Value(0)).current;
+  const pulseAnim = useRef(new Animated.Value(1)).current;
+
+  useEffect(() => {
+    // Entry animation
+    Animated.timing(fadeAnim, { toValue: 1, duration: 400, useNativeDriver: true }).start();
+
+    // Pulse animation for the logo
+    Animated.loop(
+      Animated.sequence([
+        Animated.timing(pulseAnim, { toValue: 1.05, duration: 800, useNativeDriver: true }),
+        Animated.timing(pulseAnim, { toValue: 1, duration: 800, useNativeDriver: true }),
+      ])
+    ).start();
+
+    // Spinner
+    Animated.loop(
+      Animated.timing(spinAnim, { toValue: 1, duration: 1200, useNativeDriver: true })
+    ).start();
+  }, []);
+
   useEffect(() => {
     let timeout: ReturnType<typeof setTimeout>;
+    let retryTimeout: ReturnType<typeof setTimeout>;
 
     const handleCallback = async () => {
       // Give Firebase a moment to process the OAuth callback
-      await new Promise(resolve => setTimeout(resolve, 800));
+      await new Promise(resolve => setTimeout(resolve, 1000));
 
-      // Re-initialize store to pick up the authenticated session
+      // Re-initialize to pick up the authenticated session
       await initialize();
 
       const { user } = useAuthStore.getState();
       if (user) {
         router.replace('/(tabs)' as any);
       } else {
-        // Retry once more after a short delay
-        timeout = setTimeout(async () => {
+        // Retry after a longer delay
+        retryTimeout = setTimeout(async () => {
           await initialize();
           const { user: retryUser } = useAuthStore.getState();
           if (retryUser) {
             router.replace('/(tabs)' as any);
           } else {
-            // Failed — go back to login
             router.replace('/login' as any);
           }
-        }, 1500);
+        }, 2000);
       }
     };
 
     handleCallback();
-    return () => clearTimeout(timeout);
+
+    // Safety timeout: redirect to login after 8 seconds max
+    timeout = setTimeout(() => {
+      const { user } = useAuthStore.getState();
+      if (!user) {
+        router.replace('/login' as any);
+      }
+    }, 8000);
+
+    return () => {
+      clearTimeout(timeout);
+      clearTimeout(retryTimeout);
+    };
   }, []);
 
+  const spin = spinAnim.interpolate({
+    inputRange: [0, 1],
+    outputRange: ['0deg', '360deg'],
+  });
+
   return (
-    <View style={styles.container}>
-      <LinearGradient colors={['#0D0D20', '#080810']} style={StyleSheet.absoluteFill} />
-      <View style={styles.orb} />
+    <View style={[styles.container, { backgroundColor: colors.background }]}>
+      <StatusBar style={isDark ? 'light' : 'dark'} />
 
-      <LinearGradient colors={['#7C6FFF', '#00D4FF']} style={styles.logo}>
-        <Text style={styles.logoText}>S</Text>
-      </LinearGradient>
+      {isDark && (
+        <View style={[styles.orb, { backgroundColor: `${colors.primary}12` }]} />
+      )}
 
-      <ActivityIndicator size="large" color="#7C6FFF" style={styles.spinner} />
+      <Animated.View style={[styles.content, { opacity: fadeAnim }]}>
+        {/* Logo */}
+        <Animated.View style={{ transform: [{ scale: pulseAnim }] }}>
+          <LinearGradient colors={[colors.primary, colors.secondary]} style={styles.logo}>
+            <Text style={styles.logoText}>S</Text>
+          </LinearGradient>
+        </Animated.View>
 
-      <Text style={styles.title}>Signing you in...</Text>
-      <Text style={styles.subtitle}>Please wait while we complete authentication</Text>
+        {/* Spinner */}
+        <Animated.View style={{ transform: [{ rotate: spin }] }}>
+          <MaterialIcons name="autorenew" size={28} color={colors.primary} />
+        </Animated.View>
 
-      <View style={styles.providerRow}>
-        <MaterialIcons name="g-translate" size={16} color="rgba(255,255,255,0.4)" />
-        <Text style={styles.providerText}>Secured by Google OAuth</Text>
-      </View>
+        <Text style={[styles.title, { color: colors.text }]}>Completing Sign-In</Text>
+        <Text style={[styles.subtitle, { color: colors.textSecondary }]}>
+          Please wait while we verify your credentials
+        </Text>
+
+        {/* Provider badge */}
+        <View style={[styles.providerBadge, { backgroundColor: `${colors.primary}10`, borderColor: `${colors.primary}20` }]}>
+          <MaterialIcons name="verified-user" size={14} color={colors.primary} />
+          <Text style={[styles.providerText, { color: colors.primary }]}>Secured by Google OAuth</Text>
+        </View>
+      </Animated.View>
     </View>
   );
 }
@@ -76,20 +132,21 @@ export default function AuthCallbackScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#080810',
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 16,
-    padding: 32,
   },
   orb: {
     position: 'absolute',
     width: 300,
     height: 300,
     borderRadius: 150,
-    backgroundColor: 'rgba(124,111,255,0.1)',
     top: -60,
     right: -60,
+  },
+  content: {
+    alignItems: 'center',
+    gap: Spacing.md,
+    padding: Spacing.xl,
   },
   logo: {
     width: 72,
@@ -97,45 +154,41 @@ const styles = StyleSheet.create({
     borderRadius: 22,
     alignItems: 'center',
     justifyContent: 'center',
+    marginBottom: Spacing.sm,
     shadowColor: '#7C6FFF',
-    shadowOffset: { width: 0, height: 0 },
-    shadowOpacity: 0.6,
-    shadowRadius: 20,
-    elevation: 12,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.4,
+    shadowRadius: 16,
+    elevation: 10,
   },
   logoText: {
-    fontSize: 38,
-    fontWeight: '900',
+    fontSize: 36,
+    fontWeight: FontWeight.black,
     color: '#fff',
   },
-  spinner: { marginTop: 8 },
   title: {
-    fontSize: 22,
-    fontWeight: '700',
-    color: '#fff',
-    letterSpacing: 0.5,
+    fontSize: FontSize.xl,
+    fontWeight: FontWeight.bold,
+    letterSpacing: -0.3,
+    marginTop: Spacing.sm,
   },
   subtitle: {
-    fontSize: 14,
-    color: 'rgba(255,255,255,0.45)',
+    fontSize: FontSize.sm,
     textAlign: 'center',
     lineHeight: 20,
   },
-  providerRow: {
+  providerBadge: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 6,
-    marginTop: 8,
-    backgroundColor: 'rgba(255,255,255,0.05)',
-    paddingHorizontal: 14,
-    paddingVertical: 8,
-    borderRadius: 20,
+    gap: Spacing.xs,
+    paddingHorizontal: Spacing.md,
+    paddingVertical: Spacing.sm,
+    borderRadius: BorderRadius.full,
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.08)',
+    marginTop: Spacing.sm,
   },
   providerText: {
-    fontSize: 12,
-    color: 'rgba(255,255,255,0.4)',
-    fontWeight: '500',
+    fontSize: FontSize.xs,
+    fontWeight: FontWeight.medium,
   },
 });

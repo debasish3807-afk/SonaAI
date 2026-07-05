@@ -1,7 +1,17 @@
 /**
- * SONA AI — Auth Store
- * Powered by Firebase Authentication
- * Handles: Email/Password, Google OAuth, Anonymous/Guest mode, Forgot Password
+ * SONA AI — Auth Store (Phase 1)
+ * Production-ready Firebase Authentication module.
+ *
+ * Features:
+ *  - Email/Password Sign Up & Sign In
+ *  - Google Sign-In (web popup + mobile expo-auth-session)
+ *  - Anonymous/Guest mode
+ *  - Email Verification
+ *  - Forgot Password
+ *  - Persistent Login (Firebase handles via platform persistence)
+ *  - Session Management (token refresh, auth state listener)
+ *  - Firestore user profile sync
+ *  - Comprehensive error mapping
  */
 
 import { create } from 'zustand';
@@ -11,11 +21,13 @@ import {
   signInAnonymously,
   signOut as firebaseSignOut,
   sendPasswordResetEmail,
+  sendEmailVerification,
   updateProfile,
   onAuthStateChanged,
   GoogleAuthProvider,
   signInWithCredential,
   signInWithPopup,
+  reload,
   User as FirebaseUser,
 } from 'firebase/auth';
 import { doc, setDoc, getDoc, serverTimestamp } from 'firebase/firestore';
@@ -27,6 +39,8 @@ import * as WebBrowser from 'expo-web-browser';
 
 WebBrowser.maybeCompleteAuthSession();
 
+// ─── Types ────────────────────────────────────────────────────────────────────
+
 export interface SonaUser {
   id: string;
   email: string;
@@ -34,6 +48,7 @@ export interface SonaUser {
   photoUrl?: string;
   plan: 'free' | 'pro';
   isGuest: boolean;
+  emailVerified: boolean;
   onboarded: boolean;
   createdAt: string;
 }
@@ -44,24 +59,58 @@ interface AuthState {
   isInitialized: boolean;
   isGuest: boolean;
   error: string | null;
+  emailVerificationSent: boolean;
 
-  // Actions
+  // Lifecycle
   initialize: () => Promise<void>;
+
+  // Email/Password
   signIn: (email: string, password: string) => Promise<{ error: string | null }>;
   signUp: (email: string, password: string, displayName: string) => Promise<{ error: string | null }>;
+
+  // OAuth
   signInWithGoogle: () => Promise<{ error: string | null }>;
+
+  // Guest
   continueAsGuest: () => Promise<void>;
+
+  // Password Reset
   forgotPassword: (email: string) => Promise<{ error: string | null }>;
+
+  // Email Verification
+  sendVerificationEmail: () => Promise<{ error: string | null }>;
+  refreshEmailVerification: () => Promise<boolean>;
+
+  // Session
   signOut: () => Promise<void>;
-  updateProfile: (updates: Partial<Pick<SonaUser, 'displayName' | 'photoUrl'>>) => Promise<{ error: string | null }>;
+  refreshSession: () => Promise<void>;
+
+  // Profile
+  updateUserProfile: (updates: Partial<Pick<SonaUser, 'displayName' | 'photoUrl'>>) => Promise<{ error: string | null }>;
+
+  // State management
   clearError: () => void;
+  setError: (error: string) => void;
 }
 
-const GUEST_KEY = '@sona_guest_mode';
+// ─── Constants ────────────────────────────────────────────────────────────────
 
-/**
- * Maps a Firebase Auth user + Firestore profile to a SonaUser.
- */
+const GUEST_KEY = '@sona_guest_mode';
+const SESSION_KEY = '@sona_last_active';
+
+const GUEST_USER: SonaUser = {
+  id: 'guest',
+  email: '',
+  displayName: 'Guest',
+  plan: 'free',
+  isGuest: true,
+  emailVerified: false,
+  onboarded: true,
+  createdAt: new Date().toISOString(),
+};
+
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+
 function mapFirebaseUser(firebaseUser: FirebaseUser, profile?: any): SonaUser {
   return {
     id: firebaseUser.uid,
@@ -74,6 +123,7 @@ function mapFirebaseUser(firebaseUser: FirebaseUser, profile?: any): SonaUser {
     photoUrl: profile?.photoUrl ?? firebaseUser.photoURL ?? undefined,
     plan: (profile?.plan as 'free' | 'pro') ?? 'free',
     isGuest: firebaseUser.isAnonymous,
+    emailVerified: firebaseUser.emailVerified,
     onboarded: profile?.onboarded ?? false,
     createdAt:
       profile?.createdAt?.toDate?.()?.toISOString() ??
@@ -82,9 +132,6 @@ function mapFirebaseUser(firebaseUser: FirebaseUser, profile?: any): SonaUser {
   };
 }
 
-/**
- * Upserts a user profile document in Firestore.
- */
 async function upsertUserProfile(
   uid: string,
   data: Partial<{
@@ -93,6 +140,7 @@ async function upsertUserProfile(
     photoUrl: string;
     plan: string;
     onboarded: boolean;
+    emailVerified: boolean;
   }>
 ): Promise<void> {
   const profileRef = doc(db, 'users', uid);
@@ -103,61 +151,54 @@ async function upsertUserProfile(
   } else {
     await setDoc(profileRef, {
       ...data,
-      plan: 'free',
-      onboarded: false,
+      plan: data.plan ?? 'free',
+      onboarded: data.onboarded ?? false,
       createdAt: serverTimestamp(),
       updatedAt: serverTimestamp(),
     });
   }
 }
 
-/**
- * Fetches the user profile from Firestore.
- */
 async function fetchUserProfile(uid: string): Promise<any | null> {
   const profileRef = doc(db, 'users', uid);
   const snap = await getDoc(profileRef);
   return snap.exists() ? snap.data() : null;
 }
 
-/**
- * Maps Firebase Auth error codes to user-friendly messages.
- */
 function getAuthErrorMessage(code: string): string {
   switch (code) {
     case 'auth/invalid-email':
-      return 'Invalid email address format.';
+      return 'Please enter a valid email address.';
     case 'auth/user-disabled':
-      return 'This account has been disabled.';
+      return 'This account has been disabled. Contact support.';
     case 'auth/user-not-found':
-      return 'No account found with this email.';
+      return 'No account found with this email address.';
     case 'auth/wrong-password':
     case 'auth/invalid-credential':
-      return 'Invalid email or password. Please try again.';
+      return 'Incorrect email or password.';
     case 'auth/email-already-in-use':
-      return 'An account with this email already exists.';
+      return 'An account with this email already exists. Try signing in.';
     case 'auth/weak-password':
-      return 'Password must be at least 6 characters.';
+      return 'Password must be at least 6 characters long.';
     case 'auth/too-many-requests':
-      return 'Too many attempts. Please try again later.';
+      return 'Too many attempts. Please wait a moment and try again.';
     case 'auth/network-request-failed':
-      return 'Network error. Please check your connection.';
+      return 'Network error. Check your internet connection.';
     case 'auth/popup-closed-by-user':
-      return 'Sign-in cancelled.';
+    case 'auth/cancelled-popup-request':
+      return 'Sign-in was cancelled.';
+    case 'auth/operation-not-allowed':
+      return 'This sign-in method is not enabled. Contact support.';
+    case 'auth/requires-recent-login':
+      return 'Please sign in again to complete this action.';
+    case 'auth/account-exists-with-different-credential':
+      return 'An account already exists with a different sign-in method.';
     default:
-      return 'Authentication failed. Please try again.';
+      return 'Something went wrong. Please try again.';
   }
 }
 
-const GUEST_USER: SonaUser = {
-  id: 'guest',
-  email: '',
-  displayName: 'Guest',
-  plan: 'free',
-  isGuest: true,
-  onboarded: true,
-  createdAt: new Date().toISOString(),
-};
+// ─── Store ────────────────────────────────────────────────────────────────────
 
 export const useAuthStore = create<AuthState>((set, get) => ({
   user: null,
@@ -165,18 +206,20 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   isInitialized: false,
   isGuest: false,
   error: null,
+  emailVerificationSent: false,
+
+  // ── Initialize ─────────────────────────────────────────────────────────────
 
   initialize: async () => {
     try {
-      // Check guest mode first
       const guestMode = await AsyncStorage.getItem(GUEST_KEY);
       if (guestMode === 'true') {
         set({ user: GUEST_USER, isGuest: true, isInitialized: true });
         return;
       }
 
-      // Listen for Firebase Auth state changes
-      onAuthStateChanged(auth, async (firebaseUser) => {
+      // Set up persistent auth state listener
+      const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
         if (firebaseUser) {
           const profile = await fetchUserProfile(firebaseUser.uid).catch(() => null);
           const sonaUser = mapFirebaseUser(firebaseUser, profile);
@@ -184,34 +227,38 @@ export const useAuthStore = create<AuthState>((set, get) => ({
             user: sonaUser,
             isGuest: firebaseUser.isAnonymous,
             isInitialized: true,
+            isLoading: false,
           });
+          // Track session activity
+          await AsyncStorage.setItem(SESSION_KEY, Date.now().toString());
         } else {
-          // Only update if not in guest mode
           const guestCheck = await AsyncStorage.getItem(GUEST_KEY);
           if (guestCheck !== 'true') {
-            set({ user: null, isGuest: false, isInitialized: true });
+            set({ user: null, isGuest: false, isInitialized: true, isLoading: false });
           }
         }
       });
 
-      // If there's already a current user from persisted session, set initialized
+      // Handle case where auth state hasn't fired yet
       if (auth.currentUser) {
         const profile = await fetchUserProfile(auth.currentUser.uid).catch(() => null);
         const sonaUser = mapFirebaseUser(auth.currentUser, profile);
         set({ user: sonaUser, isGuest: auth.currentUser.isAnonymous, isInitialized: true });
       } else {
-        // Mark as initialized after a brief wait for auth state to resolve
+        // Give Firebase a moment to restore session from persistence
         setTimeout(() => {
           const { isInitialized } = get();
           if (!isInitialized) {
             set({ isInitialized: true });
           }
-        }, 2000);
+        }, 2500);
       }
-    } catch (err) {
+    } catch {
       set({ isInitialized: true, user: null });
     }
   },
+
+  // ── Email/Password Sign In ─────────────────────────────────────────────────
 
   signIn: async (email, password) => {
     set({ isLoading: true, error: null });
@@ -220,8 +267,9 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       const profile = await fetchUserProfile(credential.user.uid).catch(() => null);
       const sonaUser = mapFirebaseUser(credential.user, profile);
 
-      set({ user: sonaUser, isGuest: false, isLoading: false });
       await AsyncStorage.removeItem(GUEST_KEY);
+      await AsyncStorage.setItem(SESSION_KEY, Date.now().toString());
+      set({ user: sonaUser, isGuest: false, isLoading: false });
       return { error: null };
     } catch (err: any) {
       const msg = getAuthErrorMessage(err?.code ?? '');
@@ -229,28 +277,37 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       return { error: msg };
     }
   },
+
+  // ── Email/Password Sign Up ─────────────────────────────────────────────────
 
   signUp: async (email, password, displayName) => {
     set({ isLoading: true, error: null });
     try {
       const credential = await createUserWithEmailAndPassword(auth, email, password);
 
-      // Update Firebase Auth profile
+      // Set display name on Firebase Auth profile
       await updateProfile(credential.user, { displayName });
 
-      // Create Firestore profile document
+      // Send email verification
+      await sendEmailVerification(credential.user).catch(() => {
+        // Non-blocking: verification email is best-effort
+      });
+
+      // Create Firestore profile
       await upsertUserProfile(credential.user.uid, {
         email,
         displayName,
         plan: 'free',
         onboarded: false,
+        emailVerified: false,
       });
 
       const profile = await fetchUserProfile(credential.user.uid).catch(() => null);
       const sonaUser = mapFirebaseUser(credential.user, profile);
 
-      set({ user: sonaUser, isGuest: false, isLoading: false });
       await AsyncStorage.removeItem(GUEST_KEY);
+      await AsyncStorage.setItem(SESSION_KEY, Date.now().toString());
+      set({ user: sonaUser, isGuest: false, isLoading: false, emailVerificationSent: true });
       return { error: null };
     } catch (err: any) {
       const msg = getAuthErrorMessage(err?.code ?? '');
@@ -259,76 +316,79 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     }
   },
 
+  // ── Google Sign-In ─────────────────────────────────────────────────────────
+
   signInWithGoogle: async () => {
     set({ isLoading: true, error: null });
     try {
       if (Platform.OS === 'web') {
-        // Web: Use popup-based sign-in
         const provider = new GoogleAuthProvider();
         provider.addScope('email');
         provider.addScope('profile');
         const result = await signInWithPopup(auth, provider);
 
-        // Upsert profile
         await upsertUserProfile(result.user.uid, {
           email: result.user.email ?? '',
           displayName: result.user.displayName ?? '',
           photoUrl: result.user.photoURL ?? '',
+          emailVerified: result.user.emailVerified,
         });
 
         const profile = await fetchUserProfile(result.user.uid).catch(() => null);
         const sonaUser = mapFirebaseUser(result.user, profile);
 
-        set({ user: sonaUser, isGuest: false, isLoading: false });
         await AsyncStorage.removeItem(GUEST_KEY);
+        await AsyncStorage.setItem(SESSION_KEY, Date.now().toString());
+        set({ user: sonaUser, isGuest: false, isLoading: false });
         return { error: null };
-      } else {
-        // Mobile: Use expo-auth-session for OAuth flow
-        const redirectUri = AuthSession.makeRedirectUri({ scheme: 'sonaai', path: 'auth/callback' });
-        const clientId = process.env.EXPO_PUBLIC_FIREBASE_API_KEY ?? '';
-        const authDomain = process.env.EXPO_PUBLIC_FIREBASE_AUTH_DOMAIN ?? '';
+      }
 
-        const discoveryDocument = {
-          authorizationEndpoint: `https://accounts.google.com/o/oauth2/v2/auth`,
-          tokenEndpoint: `https://oauth2.googleapis.com/token`,
-        };
+      // Mobile: expo-auth-session OAuth flow
+      const redirectUri = AuthSession.makeRedirectUri({ scheme: 'sonaai', path: 'auth/callback' });
+      const discoveryDocument = {
+        authorizationEndpoint: 'https://accounts.google.com/o/oauth2/v2/auth',
+        tokenEndpoint: 'https://oauth2.googleapis.com/token',
+      };
 
-        const request = new AuthSession.AuthRequest({
-          clientId,
-          redirectUri,
-          scopes: ['openid', 'profile', 'email'],
-          responseType: AuthSession.ResponseType.IdToken,
-          extraParams: {
-            nonce: Math.random().toString(36).substring(2),
-          },
+      const clientId = process.env.EXPO_PUBLIC_GOOGLE_CLIENT_ID ?? process.env.EXPO_PUBLIC_FIREBASE_API_KEY ?? '';
+
+      const request = new AuthSession.AuthRequest({
+        clientId,
+        redirectUri,
+        scopes: ['openid', 'profile', 'email'],
+        responseType: AuthSession.ResponseType.IdToken,
+        extraParams: { nonce: Math.random().toString(36).substring(2) },
+      });
+
+      const result = await request.promptAsync(discoveryDocument);
+
+      if (result.type === 'success' && result.params?.id_token) {
+        const credential = GoogleAuthProvider.credential(result.params.id_token);
+        const userCredential = await signInWithCredential(auth, credential);
+
+        await upsertUserProfile(userCredential.user.uid, {
+          email: userCredential.user.email ?? '',
+          displayName: userCredential.user.displayName ?? '',
+          photoUrl: userCredential.user.photoURL ?? '',
+          emailVerified: userCredential.user.emailVerified,
         });
 
-        const result = await request.promptAsync(discoveryDocument);
+        const profile = await fetchUserProfile(userCredential.user.uid).catch(() => null);
+        const sonaUser = mapFirebaseUser(userCredential.user, profile);
 
-        if (result.type === 'success' && result.params?.id_token) {
-          const credential = GoogleAuthProvider.credential(result.params.id_token);
-          const userCredential = await signInWithCredential(auth, credential);
-
-          await upsertUserProfile(userCredential.user.uid, {
-            email: userCredential.user.email ?? '',
-            displayName: userCredential.user.displayName ?? '',
-            photoUrl: userCredential.user.photoURL ?? '',
-          });
-
-          const profile = await fetchUserProfile(userCredential.user.uid).catch(() => null);
-          const sonaUser = mapFirebaseUser(userCredential.user, profile);
-
-          set({ user: sonaUser, isGuest: false, isLoading: false });
-          await AsyncStorage.removeItem(GUEST_KEY);
-          return { error: null };
-        } else if (result.type === 'cancel' || result.type === 'dismiss') {
-          set({ isLoading: false });
-          return { error: 'Sign-in cancelled.' };
-        } else {
-          set({ isLoading: false });
-          return { error: 'Google sign-in failed. Please try again.' };
-        }
+        await AsyncStorage.removeItem(GUEST_KEY);
+        await AsyncStorage.setItem(SESSION_KEY, Date.now().toString());
+        set({ user: sonaUser, isGuest: false, isLoading: false });
+        return { error: null };
       }
+
+      if (result.type === 'cancel' || result.type === 'dismiss') {
+        set({ isLoading: false });
+        return { error: 'Sign-in was cancelled.' };
+      }
+
+      set({ isLoading: false });
+      return { error: 'Google sign-in failed. Please try again.' };
     } catch (err: any) {
       const msg = getAuthErrorMessage(err?.code ?? '');
       set({ isLoading: false, error: msg });
@@ -336,24 +396,28 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     }
   },
 
+  // ── Guest Login ────────────────────────────────────────────────────────────
+
   continueAsGuest: async () => {
+    set({ isLoading: true, error: null });
     try {
-      // Sign in anonymously with Firebase for basic backend access
       await signInAnonymously(auth);
       await AsyncStorage.setItem(GUEST_KEY, 'true');
-      set({ user: GUEST_USER, isGuest: true });
+      set({ user: GUEST_USER, isGuest: true, isLoading: false });
     } catch {
-      // Fallback: use local guest mode without Firebase anonymous auth
+      // Fallback: local-only guest mode
       await AsyncStorage.setItem(GUEST_KEY, 'true');
-      set({ user: GUEST_USER, isGuest: true });
+      set({ user: GUEST_USER, isGuest: true, isLoading: false });
     }
   },
+
+  // ── Forgot Password ────────────────────────────────────────────────────────
 
   forgotPassword: async (email) => {
     set({ isLoading: true, error: null });
     try {
       await sendPasswordResetEmail(auth, email, {
-        url: 'https://sona-ai.firebaseapp.com/auth/reset-complete',
+        url: `https://${process.env.EXPO_PUBLIC_FIREBASE_AUTH_DOMAIN ?? 'sona-ai.firebaseapp.com'}/auth/reset-complete`,
         handleCodeInApp: false,
       });
       set({ isLoading: false });
@@ -365,33 +429,95 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     }
   },
 
+  // ── Email Verification ─────────────────────────────────────────────────────
+
+  sendVerificationEmail: async () => {
+    const firebaseUser = auth.currentUser;
+    if (!firebaseUser) return { error: 'No active session.' };
+    if (firebaseUser.emailVerified) return { error: null };
+
+    try {
+      await sendEmailVerification(firebaseUser);
+      set({ emailVerificationSent: true });
+      return { error: null };
+    } catch (err: any) {
+      if (err?.code === 'auth/too-many-requests') {
+        return { error: 'Verification email already sent. Check your inbox.' };
+      }
+      return { error: 'Failed to send verification email. Try again later.' };
+    }
+  },
+
+  refreshEmailVerification: async () => {
+    const firebaseUser = auth.currentUser;
+    if (!firebaseUser) return false;
+
+    try {
+      await reload(firebaseUser);
+      if (firebaseUser.emailVerified) {
+        const { user } = get();
+        if (user) {
+          set({ user: { ...user, emailVerified: true } });
+          await upsertUserProfile(firebaseUser.uid, { emailVerified: true });
+        }
+        return true;
+      }
+      return false;
+    } catch {
+      return false;
+    }
+  },
+
+  // ── Session Management ─────────────────────────────────────────────────────
+
+  refreshSession: async () => {
+    const firebaseUser = auth.currentUser;
+    if (!firebaseUser) return;
+
+    try {
+      // Force token refresh to keep session alive
+      await firebaseUser.getIdToken(true);
+      await reload(firebaseUser);
+
+      const profile = await fetchUserProfile(firebaseUser.uid).catch(() => null);
+      const sonaUser = mapFirebaseUser(firebaseUser, profile);
+      set({ user: sonaUser });
+      await AsyncStorage.setItem(SESSION_KEY, Date.now().toString());
+    } catch {
+      // Token refresh failed — session may be expired
+    }
+  },
+
+  // ── Sign Out ───────────────────────────────────────────────────────────────
+
   signOut: async () => {
     set({ isLoading: true });
     try {
       await AsyncStorage.removeItem(GUEST_KEY);
+      await AsyncStorage.removeItem(SESSION_KEY);
       await firebaseSignOut(auth);
-      set({ user: null, isGuest: false, isLoading: false });
+      set({ user: null, isGuest: false, isLoading: false, emailVerificationSent: false });
     } catch {
       // Force local cleanup even if Firebase sign-out fails
-      set({ user: null, isGuest: false, isLoading: false });
+      set({ user: null, isGuest: false, isLoading: false, emailVerificationSent: false });
     }
   },
 
-  updateProfile: async (updates) => {
+  // ── Profile Update ─────────────────────────────────────────────────────────
+
+  updateUserProfile: async (updates) => {
     const { user } = get();
-    if (!user || user.isGuest) return { error: 'Not authenticated' };
+    if (!user || user.isGuest) return { error: 'Not authenticated.' };
+
+    const firebaseUser = auth.currentUser;
+    if (!firebaseUser) return { error: 'Session expired. Please sign in again.' };
 
     try {
-      const firebaseUser = auth.currentUser;
-      if (!firebaseUser) return { error: 'No active session' };
-
-      // Update Firebase Auth profile
       await updateProfile(firebaseUser, {
         displayName: updates.displayName ?? firebaseUser.displayName,
         photoURL: updates.photoUrl ?? firebaseUser.photoURL,
       });
 
-      // Update Firestore profile
       await upsertUserProfile(firebaseUser.uid, {
         displayName: updates.displayName,
         photoUrl: updates.photoUrl,
@@ -404,5 +530,8 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     }
   },
 
+  // ── Error Management ───────────────────────────────────────────────────────
+
   clearError: () => set({ error: null }),
+  setError: (error: string) => set({ error }),
 }));
