@@ -53,6 +53,8 @@ function RootLayoutNav() {
         <Stack.Screen name="api-manager" options={{ animation: 'slide_from_right' }} />
         <Stack.Screen name="developer-mode" options={{ animation: 'slide_from_right' }} />
         <Stack.Screen name="debug-console" options={{ animation: 'slide_from_right' }} />
+        {/* OAuth Callback */}
+        <Stack.Screen name="auth/callback" options={{ animation: 'fade', headerShown: false }} />
       </Stack>
     </>
   );

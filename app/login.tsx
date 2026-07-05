@@ -94,8 +94,16 @@ export default function LoginScreen() {
 
   const handleGoogle = async () => {
     const { error: err } = await signInWithGoogle();
+    // On success: system browser opens for Google login, then deep links back to sonaai://auth/callback
+    // On error: show alert (e.g. provider not enabled)
     if (err) {
-      showAlert('Google Sign-In', 'Google Sign-In requires enabling the Google provider in the OnSpace Cloud Dashboard. Go to Cloud → User → Auth Settings → Enable Google.', [{ text: 'OK' }]);
+      showAlert(
+        'Google Sign-In Failed',
+        err.includes('provider') || err.includes('OAuth') || err.includes('not enabled')
+          ? 'Google Sign-In is not enabled yet. Enable it in Cloud → User → Auth Settings → Google provider.'
+          : err,
+        [{ text: 'OK' }]
+      );
     }
   };
 
