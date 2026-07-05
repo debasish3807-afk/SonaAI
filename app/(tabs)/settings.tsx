@@ -7,6 +7,8 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter } from 'expo-router';
 import { useTheme } from '@/hooks/useTheme';
+import { useAuthStore } from '@/stores/useAuthStore';
+import { useAlert } from '@/template';
 import { Card } from '@/components/ui/Card';
 import { Badge } from '@/components/ui/Badge';
 import { BorderRadius, FontSize, FontWeight, Spacing } from '@/constants/theme';
@@ -55,6 +57,8 @@ const SettingRow: React.FC<SettingRowProps> = ({
 export default function SettingsScreen() {
   const { colors, isDark, toggleTheme } = useTheme();
   const router = useRouter();
+  const { user, signOut, isGuest } = useAuthStore();
+  const { showAlert } = useAlert();
   const [notifications, setNotifications] = useState(true);
   const [voiceEnabled, setVoiceEnabled] = useState(true);
   const [cloudSync, setCloudSync] = useState(false);
@@ -67,6 +71,29 @@ export default function SettingsScreen() {
     Animated.timing(fadeAnim, { toValue: 1, duration: 400, useNativeDriver: true }).start();
   }, []);
 
+  const handleSignOut = () => {
+    showAlert(
+      isGuest ? 'Exit Guest Mode' : 'Sign Out',
+      isGuest ? 'Your guest session will end and local data will be cleared.' : 'You will be signed out of SONA AI.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: isGuest ? 'Exit' : 'Sign Out',
+          style: 'destructive',
+          onPress: async () => {
+            await signOut();
+            router.replace('/login' as any);
+          },
+        },
+      ]
+    );
+  };
+
+  const displayName = user?.displayName ?? 'SONA User';
+  const displayEmail = user?.email || (isGuest ? 'Guest Mode' : 'Not signed in');
+  const planLabel = isGuest ? 'Guest' : (user?.plan === 'pro' ? 'Pro Plan' : 'Free Plan');
+  const planVariant = isGuest ? 'outline' : (user?.plan === 'pro' ? 'gold' : 'outline');
+
   return (
     <SafeAreaView style={[styles.safe, { backgroundColor: colors.background }]} edges={['top']}>
       <Animated.View style={[styles.flex, { opacity: fadeAnim }]}>
@@ -78,13 +105,15 @@ export default function SettingsScreen() {
           >
             <Pressable onPress={() => router.push('/profile' as any)}>
               <LinearGradient colors={['#7C6FFF', '#00D4FF']} style={styles.profileAvatar}>
-                <Text style={styles.avatarText}>S</Text>
+                <Text style={styles.avatarText}>
+                  {displayName.charAt(0).toUpperCase()}
+                </Text>
               </LinearGradient>
             </Pressable>
             <View style={styles.profileInfo}>
-              <Text style={[styles.profileName, { color: colors.text }]}>SONA User</Text>
-              <Text style={[styles.profileEmail, { color: colors.textSecondary }]}>user@sona.ai</Text>
-              <Badge label="Free Plan" variant="outline" size="sm" />
+              <Text style={[styles.profileName, { color: colors.text }]}>{displayName}</Text>
+              <Text style={[styles.profileEmail, { color: colors.textSecondary }]}>{displayEmail}</Text>
+              <Badge label={planLabel} variant={planVariant as any} size="sm" />
             </View>
             <Pressable
               onPress={() => router.push('/profile' as any)}
@@ -95,18 +124,39 @@ export default function SettingsScreen() {
           </LinearGradient>
 
           {/* ── Upgrade Banner ── */}
-          <Pressable style={({ pressed }) => [styles.upgradeWrapper, { opacity: pressed ? 0.92 : 1 }]}>
-            <LinearGradient colors={['#7C6FFF', '#00D4FF']} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }} style={styles.upgradeBanner}>
-              <MaterialIcons name="workspace-premium" size={22} color="#fff" />
-              <View style={{ flex: 1 }}>
-                <Text style={styles.upgradeTitle}>Upgrade to SONA Pro</Text>
-                <Text style={styles.upgradeDesc}>Unlimited AI · Voice · Image Gen</Text>
-              </View>
-              <View style={styles.upgradeArrow}>
-                <MaterialIcons name="arrow-forward-ios" size={14} color="#fff" />
-              </View>
-            </LinearGradient>
-          </Pressable>
+          {!isGuest && user?.plan !== 'pro' ? (
+            <Pressable style={({ pressed }) => [styles.upgradeWrapper, { opacity: pressed ? 0.92 : 1 }]}>
+              <LinearGradient colors={['#7C6FFF', '#00D4FF']} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }} style={styles.upgradeBanner}>
+                <MaterialIcons name="workspace-premium" size={22} color="#fff" />
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.upgradeTitle}>Upgrade to SONA Pro</Text>
+                  <Text style={styles.upgradeDesc}>Unlimited AI · Voice · Image Gen</Text>
+                </View>
+                <View style={styles.upgradeArrow}>
+                  <MaterialIcons name="arrow-forward-ios" size={14} color="#fff" />
+                </View>
+              </LinearGradient>
+            </Pressable>
+          ) : null}
+
+          {/* ── Guest Banner ── */}
+          {isGuest ? (
+            <Pressable
+              onPress={() => router.replace('/login' as any)}
+              style={({ pressed }) => [styles.upgradeWrapper, { opacity: pressed ? 0.92 : 1 }]}
+            >
+              <LinearGradient colors={['#FF9800', '#FF6B00']} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }} style={styles.upgradeBanner}>
+                <MaterialIcons name="account-circle" size={22} color="#fff" />
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.upgradeTitle}>You are in Guest Mode</Text>
+                  <Text style={styles.upgradeDesc}>Sign in to save progress and sync data</Text>
+                </View>
+                <View style={styles.upgradeArrow}>
+                  <MaterialIcons name="login" size={16} color="#fff" />
+                </View>
+              </LinearGradient>
+            </Pressable>
+          ) : null}
 
           {/* ── Quick Navigation ── */}
           <View style={styles.section}>
@@ -182,7 +232,7 @@ export default function SettingsScreen() {
           <View style={styles.section}>
             <Text style={[styles.sectionTitle, { color: colors.textMuted }]}>Data & Privacy</Text>
             <Card>
-              <SettingRow icon="cloud-sync" iconColor="#4CAF50" label="Cloud Sync" description="Sync across all devices" toggle value={cloudSync} onToggle={setCloudSync} badge={cloudSync ? undefined : 'Pro'} badgeVariant="gold" />
+              <SettingRow icon="cloud-sync" iconColor="#4CAF50" label="Cloud Sync" description="Sync across all devices" toggle value={cloudSync} onToggle={setCloudSync} badge={cloudSync ? undefined : 'Pro'} badgeVariant="gold" disabled={isGuest} />
               <SettingRow icon="analytics" iconColor="#FF9800" label="Usage Analytics" description="Help improve SONA AI" toggle value={analytics} onToggle={setAnalytics} />
               <SettingRow icon="security" iconColor="#7C6FFF" label="Privacy Settings" description="Data handling preferences" onPress={() => router.push('/privacy-policy' as any)} />
               <SettingRow icon="delete-forever" iconColor="#FF5252" label="Clear All Data" description="Remove all local data permanently" onPress={() => {}} destructive isLast />
@@ -206,7 +256,7 @@ export default function SettingsScreen() {
             <Text style={[styles.sectionTitle, { color: colors.textMuted }]}>About</Text>
             <Card>
               <SettingRow icon="info-outline" iconColor="#7C6FFF" label="Version" description="SONA AI v1.0.0 (Build 100)" />
-              <SettingRow icon="new-releases" iconColor="#00E676" label="What's New" badge="v1.0" badgeVariant="success" onPress={() => {}} />
+              <SettingRow icon="new-releases" iconColor="#00E676" label="What is New" badge="v1.0" badgeVariant="success" onPress={() => {}} />
               <SettingRow icon="help-outline" iconColor="#00D4FF" label="Help Center" onPress={() => router.push('/help-center' as any)} />
               <SettingRow icon="description" iconColor="#F5C842" label="Privacy Policy" onPress={() => router.push('/privacy-policy' as any)} />
               <SettingRow icon="gavel" iconColor="#FF9800" label="Terms of Service" onPress={() => router.push('/terms-of-service' as any)} />
@@ -215,7 +265,20 @@ export default function SettingsScreen() {
             </Card>
           </View>
 
-          <View style={{ height: 40 }} />
+          {/* ── Sign Out ── */}
+          <View style={[styles.section, { marginBottom: Spacing.xl }]}>
+            <Card>
+              <SettingRow
+                icon={isGuest ? 'person-add' : 'logout'}
+                iconColor="#FF5252"
+                label={isGuest ? 'Sign In / Create Account' : 'Sign Out'}
+                description={isGuest ? 'Create a free account to save your data' : `Signed in as ${displayEmail}`}
+                onPress={isGuest ? () => router.replace('/login' as any) : handleSignOut}
+                destructive={!isGuest}
+                isLast
+              />
+            </Card>
+          </View>
         </ScrollView>
       </Animated.View>
     </SafeAreaView>

@@ -1,54 +1,20 @@
-// Authentication Service - Placeholder for future Firebase/Supabase integration
-// TODO: Implement real authentication
+/**
+ * SONA AI — Authentication Service
+ * Backend: OnSpace Cloud (Supabase-compatible)
+ *
+ * Supports:
+ *  - Email / Password sign-in & sign-up
+ *  - Google OAuth  (requires Google provider enabled in OnSpace Cloud Dashboard → User → Auth Settings)
+ *  - Guest / anonymous mode  (local only, no backend session)
+ *  - Forgot password via email reset link
+ *  - Session persistence via Supabase session storage
+ *  - Protected route helpers
+ *
+ * To enable Google Sign-In:
+ *  1. Go to OnSpace Cloud Dashboard → User → Auth Settings
+ *  2. Enable Google provider and add Client ID + Client Secret
+ *  3. Add redirect URI:  sonaai://auth/callback
+ */
 
-export interface AuthUser {
-  id: string;
-  email: string;
-  displayName: string;
-  photoUrl?: string;
-  createdAt: string;
-}
-
-export interface AuthCredentials {
-  email: string;
-  password: string;
-}
-
-// TODO: Replace with Firebase Auth or Supabase Auth
-export const signIn = async (credentials: AuthCredentials): Promise<AuthUser> => {
-  await new Promise(resolve => setTimeout(resolve, 1000));
-  // TODO: Implement real sign in
-  // return await supabase.auth.signInWithPassword(credentials);
-  return {
-    id: 'mock_user_001',
-    email: credentials.email,
-    displayName: 'SONA User',
-    createdAt: new Date().toISOString(),
-  };
-};
-
-export const signUp = async (credentials: AuthCredentials & { displayName: string }): Promise<AuthUser> => {
-  await new Promise(resolve => setTimeout(resolve, 1000));
-  // TODO: Implement real sign up
-  return {
-    id: `user_${Date.now()}`,
-    email: credentials.email,
-    displayName: credentials.displayName,
-    createdAt: new Date().toISOString(),
-  };
-};
-
-export const signOut = async (): Promise<void> => {
-  // TODO: Implement real sign out
-  await new Promise(resolve => setTimeout(resolve, 300));
-};
-
-export const getCurrentUser = async (): Promise<AuthUser | null> => {
-  // TODO: Check Firebase/Supabase session
-  return null;
-};
-
-// TODO: Google OAuth
-export const signInWithGoogle = async (): Promise<AuthUser> => {
-  throw new Error('Google OAuth not yet implemented - TODO: Add Firebase Google Auth');
-};
+export { useAuthStore } from '@/stores/useAuthStore';
+export type { SonaUser } from '@/stores/useAuthStore';

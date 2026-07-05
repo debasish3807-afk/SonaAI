@@ -5,6 +5,8 @@ import { Image } from 'expo-image';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Colors, FontSize, FontWeight } from '@/constants/theme';
 import { StatusBar } from 'expo-status-bar';
+import { useAppStore } from '@/stores/useAppStore';
+import { useAuthStore } from '@/stores/useAuthStore';
 
 const { width, height } = Dimensions.get('window');
 
@@ -19,6 +21,8 @@ const PARTICLES = [
 
 export default function SplashScreen() {
   const router = useRouter();
+  const { isOnboarded } = useAppStore();
+  const { user, isInitialized } = useAuthStore();
 
   const bgFade = useRef(new Animated.Value(0)).current;
   const logoScale = useRef(new Animated.Value(0.5)).current;
@@ -31,7 +35,7 @@ export default function SplashScreen() {
   const versionFade = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
-    Animated.sequence([
+    const animation = Animated.sequence([
       Animated.timing(bgFade, { toValue: 1, duration: 500, useNativeDriver: true }),
       Animated.parallel([
         Animated.spring(logoScale, { toValue: 1, tension: 60, friction: 7, useNativeDriver: true }),
@@ -45,10 +49,22 @@ export default function SplashScreen() {
       Animated.timing(taglineFade, { toValue: 1, duration: 320, useNativeDriver: true }),
       Animated.timing(progressAnim, { toValue: 1, duration: 1600, easing: Easing.out(Easing.cubic), useNativeDriver: false }),
       Animated.timing(versionFade, { toValue: 1, duration: 200, useNativeDriver: true }),
-    ]).start(() => {
-      setTimeout(() => router.replace('/(tabs)' as any), 200);
+    ]);
+
+    animation.start(() => {
+      setTimeout(() => navigate(), 200);
     });
-  }, []);
+  }, [isInitialized]);
+
+  const navigate = () => {
+    if (!isOnboarded) {
+      router.replace('/onboarding' as any);
+    } else if (user) {
+      router.replace('/(tabs)' as any);
+    } else {
+      router.replace('/login' as any);
+    }
+  };
 
   const progressWidth = progressAnim.interpolate({ inputRange: [0, 1], outputRange: ['0%', '100%'] });
   const spinInterpolate = logoRotate.interpolate({ inputRange: [-0.1, 0], outputRange: ['-6deg', '0deg'] });
@@ -69,27 +85,22 @@ export default function SplashScreen() {
 
       {/* Content */}
       <View style={styles.content}>
-        {/* Glow halo */}
         <View style={styles.logoHalo} />
 
-        {/* Logo */}
         <Animated.View style={{ opacity: logoFade, transform: [{ scale: logoScale }, { rotate: spinInterpolate }], marginBottom: 22 }}>
           <LinearGradient colors={['#7C6FFF', '#00D4FF']} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.logoBg}>
             <Text style={styles.logoText}>S</Text>
           </LinearGradient>
         </Animated.View>
 
-        {/* App name */}
         <Animated.View style={{ opacity: titleFade, transform: [{ translateY: titleY }] }}>
           <Text style={styles.appName}>SONA AI</Text>
         </Animated.View>
 
-        {/* Tagline */}
         <Animated.Text style={[styles.tagline, { opacity: taglineFade }]}>
           Your Intelligent AI Companion
         </Animated.Text>
 
-        {/* Progress bar */}
         <View style={styles.progressWrapper}>
           <View style={styles.progressTrack}>
             <Animated.View style={[styles.progressFill, { width: progressWidth }]}>
@@ -98,7 +109,6 @@ export default function SplashScreen() {
           </View>
         </View>
 
-        {/* Version */}
         <Animated.Text style={[styles.version, { opacity: versionFade }]}>
           v1.0.0 · Powered by Gemini AI
         </Animated.Text>

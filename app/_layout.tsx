@@ -4,6 +4,7 @@ import { AlertProvider } from '@/template';
 import { StatusBar } from 'expo-status-bar';
 import { useEffect } from 'react';
 import { useThemeStore } from '@/stores/useThemeStore';
+import { useAuthStore } from '@/stores/useAuthStore';
 
 function RootLayoutNav() {
   const { isDark } = useThemeStore();
@@ -59,9 +60,11 @@ function RootLayoutNav() {
 
 export default function RootLayout() {
   const { loadTheme } = useThemeStore();
+  const { initialize } = useAuthStore();
 
   useEffect(() => {
     loadTheme();
+    initialize();
   }, []);
 
   return (

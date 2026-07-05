@@ -1,12 +1,14 @@
 import React, { useRef, useEffect, useState } from 'react';
 import {
-  View, Text, StyleSheet, Pressable, ScrollView, Animated, Switch,
+  View, Text, StyleSheet, Pressable, ScrollView, Animated, Switch, TextInput, ActivityIndicator,
 } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter } from 'expo-router';
 import { useTheme } from '@/hooks/useTheme';
+import { useAuthStore } from '@/stores/useAuthStore';
+import { useAlert } from '@/template';
 import { Badge } from '@/components/ui/Badge';
 import { BorderRadius, FontSize, FontWeight, Spacing } from '@/constants/theme';
 
@@ -27,13 +29,56 @@ const QUICK_LINKS = [
 export default function ProfileScreen() {
   const { colors, isDark, toggleTheme } = useTheme();
   const router = useRouter();
+  const { user, signOut, updateProfile, isLoading, isGuest } = useAuthStore();
+  const { showAlert } = useAlert();
   const fadeAnim = useRef(new Animated.Value(0)).current;
   const [notifications, setNotifications] = useState(true);
   const [cloudSync, setCloudSync] = useState(false);
+  const [editingName, setEditingName] = useState(false);
+  const [nameInput, setNameInput] = useState(user?.displayName ?? 'SONA User');
 
   useEffect(() => {
     Animated.timing(fadeAnim, { toValue: 1, duration: 350, useNativeDriver: true }).start();
   }, []);
+
+  useEffect(() => {
+    if (user?.displayName) setNameInput(user.displayName);
+  }, [user?.displayName]);
+
+  const handleSaveName = async () => {
+    if (!nameInput.trim()) return;
+    const { error } = await updateProfile({ displayName: nameInput.trim() });
+    if (error) {
+      showAlert('Update Failed', error);
+    } else {
+      setEditingName(false);
+    }
+  };
+
+  const handleSignOut = () => {
+    showAlert(
+      isGuest ? 'Exit Guest Mode' : 'Sign Out',
+      isGuest ? 'Your guest session will end.' : 'You will be signed out of SONA AI.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: isGuest ? 'Exit' : 'Sign Out',
+          style: 'destructive',
+          onPress: async () => {
+            await signOut();
+            router.replace('/login' as any);
+          },
+        },
+      ]
+    );
+  };
+
+  const displayName = user?.displayName ?? 'SONA User';
+  const displayEmail = user?.email ?? (isGuest ? 'Guest Mode' : '');
+  const planLabel = isGuest ? 'Guest' : (user?.plan === 'pro' ? 'Pro Plan' : 'Free Plan');
+  const memberSince = user?.createdAt
+    ? new Date(user.createdAt).getFullYear().toString()
+    : '2025';
 
   return (
     <SafeAreaView style={[styles.safe, { backgroundColor: colors.background }]} edges={['top']}>
@@ -44,9 +89,16 @@ export default function ProfileScreen() {
             <MaterialIcons name="arrow-back-ios" size={18} color={colors.text} />
           </Pressable>
           <Text style={[styles.headerTitle, { color: colors.text }]}>Profile</Text>
-          <Pressable style={({ pressed }) => [styles.editBtn, { backgroundColor: colors.card, borderColor: colors.cardBorder, opacity: pressed ? 0.8 : 1 }]}>
-            <MaterialIcons name="edit" size={18} color={colors.textSecondary} />
-          </Pressable>
+          {!isGuest ? (
+            <Pressable
+              onPress={() => setEditingName(v => !v)}
+              style={({ pressed }) => [styles.editBtn, { backgroundColor: colors.card, borderColor: colors.cardBorder, opacity: pressed ? 0.8 : 1 }]}
+            >
+              <MaterialIcons name={editingName ? 'close' : 'edit'} size={18} color={colors.textSecondary} />
+            </Pressable>
+          ) : (
+            <View style={{ width: 38 }} />
+          )}
         </View>
 
         <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 40 }}>
@@ -57,19 +109,41 @@ export default function ProfileScreen() {
           >
             <View style={styles.avatarSection}>
               <View style={styles.avatarWrap}>
-                <LinearGradient colors={['#7C6FFF', '#00D4FF']} style={styles.avatar}>
-                  <Text style={styles.avatarText}>S</Text>
+                <LinearGradient colors={isGuest ? ['#FF9800', '#FF6B00'] : ['#7C6FFF', '#00D4FF']} style={styles.avatar}>
+                  <Text style={styles.avatarText}>
+                    {displayName.charAt(0).toUpperCase()}
+                  </Text>
                 </LinearGradient>
-                <Pressable style={[styles.cameraBtn, { backgroundColor: colors.surface, borderColor: colors.background }]}>
-                  <MaterialIcons name="camera-alt" size={14} color={colors.textSecondary} />
-                </Pressable>
+                {!isGuest ? (
+                  <Pressable style={[styles.cameraBtn, { backgroundColor: colors.surface, borderColor: colors.background }]}>
+                    <MaterialIcons name="camera-alt" size={14} color={colors.textSecondary} />
+                  </Pressable>
+                ) : null}
               </View>
               <View style={styles.profileInfo}>
-                <Text style={[styles.profileName, { color: colors.text }]}>SONA User</Text>
-                <Text style={[styles.profileEmail, { color: colors.textSecondary }]}>user@sona.ai</Text>
+                {editingName && !isGuest ? (
+                  <View style={styles.nameEditRow}>
+                    <TextInput
+                      value={nameInput}
+                      onChangeText={setNameInput}
+                      style={[styles.nameInput, { color: colors.text, borderColor: colors.primary, backgroundColor: colors.card }]}
+                      autoFocus
+                    />
+                    {isLoading ? (
+                      <ActivityIndicator size="small" color={colors.primary} />
+                    ) : (
+                      <Pressable onPress={handleSaveName} style={[styles.saveBtn, { backgroundColor: colors.primary }]}>
+                        <MaterialIcons name="check" size={16} color="#fff" />
+                      </Pressable>
+                    )}
+                  </View>
+                ) : (
+                  <Text style={[styles.profileName, { color: colors.text }]}>{displayName}</Text>
+                )}
+                <Text style={[styles.profileEmail, { color: colors.textSecondary }]}>{displayEmail}</Text>
                 <View style={styles.profileBadges}>
-                  <Badge label="Free Plan" variant="outline" size="sm" />
-                  <Badge label="Member since 2025" variant="secondary" size="sm" />
+                  <Badge label={planLabel} variant={isGuest ? 'outline' : (user?.plan === 'pro' ? 'gold' : 'outline')} size="sm" />
+                  <Badge label={`Member since ${memberSince}`} variant="secondary" size="sm" />
                 </View>
               </View>
             </View>
@@ -88,20 +162,36 @@ export default function ProfileScreen() {
             </View>
           </LinearGradient>
 
-          {/* Upgrade Banner */}
-          <Pressable style={({ pressed }) => [styles.upgradeWrapper, { opacity: pressed ? 0.92 : 1 }]}>
-            <LinearGradient colors={['#7C6FFF', '#00D4FF']} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }} style={styles.upgradeBanner}>
-              <MaterialIcons name="workspace-premium" size={22} color="#fff" />
-              <View style={{ flex: 1 }}>
-                <Text style={styles.upgradeTitle}>Upgrade to SONA Pro</Text>
-                <Text style={styles.upgradeSub}>Unlimited AI · Voice · Image Gen · Priority Support</Text>
-              </View>
-              <View style={styles.upgradePrice}>
-                <Text style={styles.priceText}>$9.99</Text>
-                <Text style={styles.priceSub}>/mo</Text>
-              </View>
-            </LinearGradient>
-          </Pressable>
+          {/* Upgrade / Guest Banner */}
+          {isGuest ? (
+            <Pressable onPress={() => router.replace('/login' as any)} style={({ pressed }) => [styles.upgradeWrapper, { opacity: pressed ? 0.92 : 1 }]}>
+              <LinearGradient colors={['#FF9800', '#FF6B00']} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }} style={styles.upgradeBanner}>
+                <MaterialIcons name="account-circle" size={22} color="#fff" />
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.upgradeTitle}>Sign in to save your progress</Text>
+                  <Text style={styles.upgradeSub}>Create a free account · Cloud sync · AI history</Text>
+                </View>
+                <View style={styles.upgradePrice}>
+                  <Text style={[styles.priceText, { fontSize: FontSize.base }]}>Free</Text>
+                  <MaterialIcons name="arrow-forward-ios" size={14} color="rgba(255,255,255,0.7)" />
+                </View>
+              </LinearGradient>
+            </Pressable>
+          ) : user?.plan !== 'pro' ? (
+            <Pressable style={({ pressed }) => [styles.upgradeWrapper, { opacity: pressed ? 0.92 : 1 }]}>
+              <LinearGradient colors={['#7C6FFF', '#00D4FF']} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }} style={styles.upgradeBanner}>
+                <MaterialIcons name="workspace-premium" size={22} color="#fff" />
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.upgradeTitle}>Upgrade to SONA Pro</Text>
+                  <Text style={styles.upgradeSub}>Unlimited AI · Voice · Image Gen · Priority Support</Text>
+                </View>
+                <View style={styles.upgradePrice}>
+                  <Text style={styles.priceText}>$9.99</Text>
+                  <Text style={styles.priceSub}>/mo</Text>
+                </View>
+              </LinearGradient>
+            </Pressable>
+          ) : null}
 
           {/* Quick Links */}
           <View style={styles.section}>
@@ -151,7 +241,7 @@ export default function ProfileScreen() {
           </View>
 
           {/* Account Actions */}
-          <View style={[styles.section, { marginBottom: 0 }]}>
+          <View style={styles.section}>
             <Text style={[styles.sectionTitle, { color: colors.text }]}>Account</Text>
             <View style={[styles.settingsCard, { backgroundColor: colors.card, borderColor: colors.cardBorder }]}>
               {[
@@ -174,6 +264,22 @@ export default function ProfileScreen() {
                 </View>
               ))}
             </View>
+          </View>
+
+          {/* Sign Out */}
+          <View style={[styles.section, { marginBottom: 0 }]}>
+            <Pressable
+              onPress={handleSignOut}
+              style={({ pressed }) => [
+                styles.signOutBtn,
+                { backgroundColor: `${isGuest ? '#FF9800' : '#FF5252'}15`, borderColor: `${isGuest ? '#FF9800' : '#FF5252'}30`, opacity: pressed ? 0.8 : 1 },
+              ]}
+            >
+              <MaterialIcons name={isGuest ? 'person-add' : 'logout'} size={20} color={isGuest ? '#FF9800' : '#FF5252'} />
+              <Text style={[styles.signOutText, { color: isGuest ? '#FF9800' : '#FF5252' }]}>
+                {isGuest ? 'Sign In / Create Account' : 'Sign Out'}
+              </Text>
+            </Pressable>
           </View>
         </ScrollView>
       </Animated.View>
@@ -199,6 +305,9 @@ const styles = StyleSheet.create({
   profileName: { fontSize: FontSize.xl, fontWeight: FontWeight.bold },
   profileEmail: { fontSize: FontSize.sm },
   profileBadges: { flexDirection: 'row', gap: 6, flexWrap: 'wrap', marginTop: 4 },
+  nameEditRow: { flexDirection: 'row', alignItems: 'center', gap: Spacing.sm },
+  nameInput: { flex: 1, borderWidth: 1.5, borderRadius: BorderRadius.md, paddingHorizontal: Spacing.sm, paddingVertical: Spacing.xs + 2, fontSize: FontSize.base, fontWeight: FontWeight.bold },
+  saveBtn: { width: 34, height: 34, borderRadius: 17, alignItems: 'center', justifyContent: 'center' },
 
   statsGrid: { flexDirection: 'row', gap: Spacing.sm },
   statCard: { flex: 1, alignItems: 'center', padding: Spacing.sm, borderRadius: BorderRadius.xl, borderWidth: 1, gap: 4 },
@@ -227,4 +336,7 @@ const styles = StyleSheet.create({
   settingIcon: { width: 38, height: 38, borderRadius: BorderRadius.sm + 2, alignItems: 'center', justifyContent: 'center' },
   settingLabel: { flex: 1, fontSize: FontSize.base, fontWeight: FontWeight.medium },
   divider: { height: StyleSheet.hairlineWidth, marginLeft: 70 },
+
+  signOutBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: Spacing.sm, paddingVertical: Spacing.md + 2, borderRadius: BorderRadius.xl, borderWidth: 1 },
+  signOutText: { fontSize: FontSize.base, fontWeight: FontWeight.bold },
 });
