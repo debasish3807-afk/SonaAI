@@ -365,19 +365,104 @@ export const useSecurityStore = create<SecurityStoreState>((set, get) => ({
   // ── Data Security ──────────────────────────────────────────────────────────
 
   encryptData: async (data: string) => {
-    let key = await SecureStore.getItemAsync(ENCRYPTION_KEY);
-    if (!key) {
-      key = await Crypto.digestStringAsync(Crypto.CryptoDigestAlgorithm.SHA256, `${Date.now()}_${Math.random()}`);
-      await SecureStore.setItemAsync(ENCRYPTION_KEY, key);
+    // For data within SecureStore limits (2KB), use native OS encryption directly.
+    // For larger data, use Web Crypto AES-GCM (available in Expo SDK 53+ via Hermes).
+    if (data.length <= 2048) {
+      // Store directly in SecureStore — uses iOS Keychain / Android Keystore (AES-256)
+      const storageKey = `${ENCRYPTION_KEY}_data_${await Crypto.digestStringAsync(
+        Crypto.CryptoDigestAlgorithm.SHA256,
+        data.slice(0, 32)
+      ).then(h => h.slice(0, 16))}`;
+      await SecureStore.setItemAsync(storageKey, data);
+      return `__SECURE__${storageKey}`;
     }
-    // Simple XOR-based obfuscation (for production use a proper encryption library)
-    const encoded = Buffer.from(data).toString('base64');
-    return encoded;
+
+    // Large data: AES-GCM via Web Crypto API
+    try {
+      const encoder = new TextEncoder();
+      const plaintext = encoder.encode(data);
+
+      // Generate or retrieve encryption key
+      let rawKey = await SecureStore.getItemAsync(ENCRYPTION_KEY);
+      if (!rawKey) {
+        rawKey = await Crypto.digestStringAsync(Crypto.CryptoDigestAlgorithm.SHA256, `${Date.now()}_${Math.random()}`);
+        await SecureStore.setItemAsync(ENCRYPTION_KEY, rawKey);
+      }
+
+      // Derive a CryptoKey from the stored key material
+      const keyMaterial = encoder.encode(rawKey);
+      const cryptoKey = await crypto.subtle.importKey(
+        'raw',
+        keyMaterial.slice(0, 32),
+        { name: 'AES-GCM' },
+        false,
+        ['encrypt']
+      );
+
+      // Generate random IV (12 bytes for AES-GCM)
+      const iv = crypto.getRandomValues(new Uint8Array(12));
+
+      // Encrypt
+      const ciphertext = await crypto.subtle.encrypt(
+        { name: 'AES-GCM', iv },
+        cryptoKey,
+        plaintext
+      );
+
+      // Encode IV + ciphertext as hex
+      const ivHex = Array.from(iv).map(b => b.toString(16).padStart(2, '0')).join('');
+      const ctHex = Array.from(new Uint8Array(ciphertext)).map(b => b.toString(16).padStart(2, '0')).join('');
+      return `__AES__${ivHex}:${ctHex}`;
+    } catch {
+      // Fallback: store in SecureStore if Web Crypto unavailable
+      const fallbackKey = `${ENCRYPTION_KEY}_fb_${Date.now()}`;
+      await SecureStore.setItemAsync(fallbackKey, data.slice(0, 2048));
+      return `__SECURE__${fallbackKey}`;
+    }
   },
 
   decryptData: async (encrypted: string) => {
     try {
-      return Buffer.from(encrypted, 'base64').toString('utf-8');
+      if (!encrypted) return '';
+
+      // SecureStore-backed encryption
+      if (encrypted.startsWith('__SECURE__')) {
+        const storageKey = encrypted.slice(10);
+        return (await SecureStore.getItemAsync(storageKey)) ?? '';
+      }
+
+      // AES-GCM decryption
+      if (encrypted.startsWith('__AES__')) {
+        const payload = encrypted.slice(7);
+        const [ivHex, ctHex] = payload.split(':');
+        if (!ivHex || !ctHex) return '';
+
+        const iv = new Uint8Array(ivHex.match(/.{2}/g)!.map(b => parseInt(b, 16)));
+        const ciphertext = new Uint8Array(ctHex.match(/.{2}/g)!.map(b => parseInt(b, 16)));
+
+        let rawKey = await SecureStore.getItemAsync(ENCRYPTION_KEY);
+        if (!rawKey) return '';
+
+        const encoder = new TextEncoder();
+        const keyMaterial = encoder.encode(rawKey);
+        const cryptoKey = await crypto.subtle.importKey(
+          'raw',
+          keyMaterial.slice(0, 32),
+          { name: 'AES-GCM' },
+          false,
+          ['decrypt']
+        );
+
+        const plaintext = await crypto.subtle.decrypt(
+          { name: 'AES-GCM', iv },
+          cryptoKey,
+          ciphertext
+        );
+
+        return new TextDecoder().decode(plaintext);
+      }
+
+      return '';
     } catch { return ''; }
   },
 
