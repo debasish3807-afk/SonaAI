@@ -60,6 +60,7 @@ interface AuthState {
   isGuest: boolean;
   error: string | null;
   emailVerificationSent: boolean;
+  _unsubAuth: (() => void) | null;
 
   // Lifecycle
   initialize: () => Promise<void>;
@@ -207,6 +208,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   isGuest: false,
   error: null,
   emailVerificationSent: false,
+  _unsubAuth: null,
 
   // ── Initialize ─────────────────────────────────────────────────────────────
 
@@ -238,6 +240,9 @@ export const useAuthStore = create<AuthState>((set, get) => ({
           }
         }
       });
+
+      // Store the unsubscribe function for cleanup
+      set({ _unsubAuth: unsubscribe });
 
       // Handle case where auth state hasn't fired yet
       if (auth.currentUser) {
@@ -493,6 +498,10 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   signOut: async () => {
     set({ isLoading: true });
     try {
+      // Unsubscribe auth state listener to prevent memory leak
+      const { _unsubAuth } = get();
+      if (_unsubAuth) { _unsubAuth(); set({ _unsubAuth: null }); }
+
       await AsyncStorage.removeItem(GUEST_KEY);
       await AsyncStorage.removeItem(SESSION_KEY);
       await firebaseSignOut(auth);
