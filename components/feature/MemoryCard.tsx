@@ -5,14 +5,19 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { useTheme } from '@/hooks/useTheme';
 import { Badge } from '@/components/ui/Badge';
 import { BorderRadius, FontSize, FontWeight, Spacing, Shadow } from '@/constants/theme';
-import type { Memory, MemoryCategory } from '@/stores/useMemoryStore';
+import type { Memory, MemoryCategory, ImportanceLevel } from '@/stores/useMemoryStore';
 
 const CATEGORY_CONFIG: Record<MemoryCategory, { color: string; icon: string; gradient: [string, string] }> = {
   personal: { color: '#FF6B9D', icon: 'person', gradient: ['#FF6B9D', '#CC3366'] },
   work: { color: '#7C6FFF', icon: 'work', gradient: ['#7C6FFF', '#4A42CC'] },
-  learning: { color: '#00D4FF', icon: 'school', gradient: ['#00D4FF', '#0099CC'] },
-  creative: { color: '#F5C842', icon: 'palette', gradient: ['#F5C842', '#D4A000'] },
+  study: { color: '#00D4FF', icon: 'school', gradient: ['#00D4FF', '#0099CC'] },
+  finance: { color: '#F5C842', icon: 'account-balance-wallet', gradient: ['#F5C842', '#D4A000'] },
   health: { color: '#00E676', icon: 'favorite', gradient: ['#00E676', '#00AA55'] },
+  travel: { color: '#FF9800', icon: 'flight', gradient: ['#FF9800', '#E65100'] },
+  shopping: { color: '#E91E63', icon: 'shopping-bag', gradient: ['#E91E63', '#AD1457'] },
+  ideas: { color: '#FFEB3B', icon: 'lightbulb', gradient: ['#FFEB3B', '#F9A825'] },
+  tasks: { color: '#8BC34A', icon: 'check-circle', gradient: ['#8BC34A', '#558B2F'] },
+  other: { color: '#9E9E9E', icon: 'more-horiz', gradient: ['#9E9E9E', '#616161'] },
 };
 
 interface MemoryCardProps {
@@ -20,9 +25,10 @@ interface MemoryCardProps {
   onPress?: () => void;
   onPin?: () => void;
   onDelete?: () => void;
+  onFavorite?: () => void;
 }
 
-export const MemoryCard: React.FC<MemoryCardProps> = ({ memory, onPress, onPin, onDelete }) => {
+export const MemoryCard: React.FC<MemoryCardProps> = ({ memory, onPress, onPin, onDelete, onFavorite }) => {
   const { colors } = useTheme();
   const scale = useRef(new Animated.Value(1)).current;
   const cfg = CATEGORY_CONFIG[memory.category];
@@ -70,6 +76,17 @@ export const MemoryCard: React.FC<MemoryCardProps> = ({ memory, onPress, onPin, 
                 />
               </Pressable>
               <Pressable
+                onPress={onFavorite}
+                hitSlop={10}
+                style={({ pressed }) => [styles.actionBtn, { backgroundColor: memory.isFavorite ? '#FFD60A22' : 'transparent', opacity: pressed ? 0.7 : 1 }]}
+              >
+                <MaterialIcons
+                  name={memory.isFavorite ? 'star' : 'star-border'}
+                  size={15}
+                  color={memory.isFavorite ? '#FFD60A' : colors.textMuted}
+                />
+              </Pressable>
+              <Pressable
                 onPress={onDelete}
                 hitSlop={10}
                 style={({ pressed }) => [styles.actionBtn, { opacity: pressed ? 0.7 : 1 }]}
@@ -87,6 +104,13 @@ export const MemoryCard: React.FC<MemoryCardProps> = ({ memory, onPress, onPin, 
           {/* Footer */}
           <View style={styles.footer}>
             <Badge label={memory.category} variant="primary" size="sm" />
+            {memory.importance && memory.importance !== 'medium' && (
+              <View style={[styles.tag, { backgroundColor: memory.importance === 'high' ? '#F4433622' : '#8BC34A22' }]}>
+                <Text style={[styles.tagText, { color: memory.importance === 'high' ? '#F44336' : '#8BC34A' }]}>
+                  {memory.importance === 'high' ? '↑ High' : '↓ Low'}
+                </Text>
+              </View>
+            )}
             <View style={styles.tagsRow}>
               {memory.tags.slice(0, 3).map(tag => (
                 <View key={tag} style={[styles.tag, { backgroundColor: colors.surfaceElevated }]}>
