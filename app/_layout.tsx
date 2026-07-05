@@ -12,11 +12,24 @@ function RootLayoutNav() {
       <StatusBar style={isDark ? 'light' : 'dark'} />
       <Stack screenOptions={{ headerShown: false, animation: 'fade' }}>
         <Stack.Screen name="index" />
+        <Stack.Screen name="onboarding" options={{ animation: 'fade' }} />
+        <Stack.Screen name="login" options={{ animation: 'slide_from_bottom' }} />
         <Stack.Screen name="(tabs)" />
         <Stack.Screen name="knowledge-vault" options={{ animation: 'slide_from_right' }} />
         <Stack.Screen name="image-generator" options={{ animation: 'slide_from_right' }} />
         <Stack.Screen name="website-builder" options={{ animation: 'slide_from_right' }} />
         <Stack.Screen name="apk-builder" options={{ animation: 'slide_from_right' }} />
+        <Stack.Screen name="profile" options={{ animation: 'slide_from_right' }} />
+        <Stack.Screen name="notifications" options={{ animation: 'slide_from_right' }} />
+        <Stack.Screen name="search" options={{ animation: 'slide_from_bottom' }} />
+        <Stack.Screen name="ai-history" options={{ animation: 'slide_from_right' }} />
+        <Stack.Screen name="downloads" options={{ animation: 'slide_from_right' }} />
+        <Stack.Screen name="favorites" options={{ animation: 'slide_from_right' }} />
+        <Stack.Screen name="recent-activity" options={{ animation: 'slide_from_right' }} />
+        <Stack.Screen name="help-center" options={{ animation: 'slide_from_right' }} />
+        <Stack.Screen name="about" options={{ animation: 'slide_from_right' }} />
+        <Stack.Screen name="privacy-policy" options={{ animation: 'slide_from_right' }} />
+        <Stack.Screen name="terms-of-service" options={{ animation: 'slide_from_right' }} />
       </Stack>
     </>
   );
