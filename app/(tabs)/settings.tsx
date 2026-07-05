@@ -114,11 +114,11 @@ export default function SettingsScreen() {
             <View style={styles.quickGrid}>
               {[
                 { label: 'Profile', icon: 'person', color: '#7C6FFF', route: '/profile' },
-                { label: 'Notifications', icon: 'notifications', color: '#FF6B9D', route: '/notifications' },
+                { label: 'Alerts', icon: 'notifications', color: '#FF6B9D', route: '/notification-center' },
                 { label: 'Favorites', icon: 'favorite', color: '#F5C842', route: '/favorites' },
                 { label: 'Downloads', icon: 'download', color: '#00E676', route: '/downloads' },
                 { label: 'AI History', icon: 'history', color: '#00D4FF', route: '/ai-history' },
-                { label: 'Activity', icon: 'timeline', color: '#FF9800', route: '/recent-activity' },
+                { label: 'Activity', icon: 'timeline', color: '#FF9800', route: '/activity-center' },
               ].map(item => (
                 <Pressable
                   key={item.label}
@@ -148,11 +148,12 @@ export default function SettingsScreen() {
           <View style={styles.section}>
             <Text style={[styles.sectionTitle, { color: colors.textMuted }]}>AI Configuration</Text>
             <Card>
-              <SettingRow icon="auto-awesome" iconColor="#F5C842" label="AI Model" description="Gemini 2.0 Flash" badge="Default" badgeVariant="gold" onPress={() => {}} />
+              <SettingRow icon="auto-awesome" iconColor="#F5C842" label="AI Models" description="Gemini 2.0 Flash (Active)" badge="Default" badgeVariant="gold" onPress={() => router.push('/ai-models' as any)} />
+              <SettingRow icon="smart-toy" iconColor="#00D4FF" label="AI Agents" description="6 agents · 3 active" onPress={() => router.push('/ai-agents' as any)} />
+              <SettingRow icon="library-books" iconColor="#7C6FFF" label="Prompt Library" description="8 templates available" onPress={() => router.push('/prompt-library' as any)} />
+              <SettingRow icon="extension" iconColor="#FF9800" label="Plugins" description="2 installed · 6 available" onPress={() => router.push('/plugin-manager' as any)} />
               <SettingRow icon="mic" iconColor="#FF6B9D" label="Voice Assistant" description="Enable voice interactions" toggle value={voiceEnabled} onToggle={setVoiceEnabled} />
-              <SettingRow icon="memory" iconColor="#00E676" label="Smart Memory" description="AI-powered context recall" toggle value={smartMemory} onToggle={setSmartMemory} />
-              <SettingRow icon="tune" iconColor="#00D4FF" label="AI Personality" description="Professional & Helpful" onPress={() => {}} />
-              <SettingRow icon="auto-fix-high" iconColor="#FF9800" label="Response Quality" description="Balanced (recommended)" onPress={() => {}} isLast />
+              <SettingRow icon="memory" iconColor="#00E676" label="Smart Memory" description="AI-powered context recall" toggle value={smartMemory} onToggle={setSmartMemory} isLast />
             </Card>
           </View>
 
@@ -165,6 +166,18 @@ export default function SettingsScreen() {
             </Card>
           </View>
 
+          {/* ── Workspace ── */}
+          <View style={styles.section}>
+            <Text style={[styles.sectionTitle, { color: colors.textMuted }]}>Workspace</Text>
+            <Card>
+              <SettingRow icon="workspaces" iconColor="#7C6FFF" label="Workspaces" description="4 workspaces" onPress={() => router.push('/workspace' as any)} />
+              <SettingRow icon="folder-special" iconColor="#F5C842" label="Projects" description="4 projects · 2 active" onPress={() => router.push('/project-manager' as any)} />
+              <SettingRow icon="folder" iconColor="#00D4FF" label="File Manager" description="Manage your files" onPress={() => router.push('/file-manager' as any)} />
+              <SettingRow icon="store" iconColor="#00E676" label="AI Marketplace" description="Browse models & plugins" onPress={() => router.push('/ai-marketplace' as any)} />
+              <SettingRow icon="backup" iconColor="#4CAF50" label="Backup & Restore" description="Last backup: Today" onPress={() => router.push('/backup-restore' as any)} isLast />
+            </Card>
+          </View>
+
           {/* ── Data & Privacy ── */}
           <View style={styles.section}>
             <Text style={[styles.sectionTitle, { color: colors.textMuted }]}>Data & Privacy</Text>
@@ -173,6 +186,18 @@ export default function SettingsScreen() {
               <SettingRow icon="analytics" iconColor="#FF9800" label="Usage Analytics" description="Help improve SONA AI" toggle value={analytics} onToggle={setAnalytics} />
               <SettingRow icon="security" iconColor="#7C6FFF" label="Privacy Settings" description="Data handling preferences" onPress={() => router.push('/privacy-policy' as any)} />
               <SettingRow icon="delete-forever" iconColor="#FF5252" label="Clear All Data" description="Remove all local data permanently" onPress={() => {}} destructive isLast />
+            </Card>
+          </View>
+
+          {/* ── Advanced ── */}
+          <View style={styles.section}>
+            <Text style={[styles.sectionTitle, { color: colors.textMuted }]}>Advanced</Text>
+            <Card>
+              <SettingRow icon="palette" iconColor="#7C6FFF" label="Theme Manager" description="Customize appearance" onPress={() => router.push('/theme-manager' as any)} />
+              <SettingRow icon="security" iconColor="#00D4FF" label="Security Center" description="Strong protection" onPress={() => router.push('/security-center' as any)} />
+              <SettingRow icon="key" iconColor="#F5C842" label="API Manager" description="Manage AI provider keys" onPress={() => router.push('/api-manager' as any)} />
+              <SettingRow icon="developer-mode" iconColor="#00E676" label="Developer Mode" description="Advanced debugging tools" onPress={() => router.push('/developer-mode' as any)} />
+              <SettingRow icon="terminal" iconColor="#FF9800" label="Debug Console" description="View live app logs" onPress={() => router.push('/debug-console' as any)} isLast />
             </Card>
           </View>
 
