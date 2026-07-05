@@ -1,5 +1,4 @@
 // SONA AI - App Configuration
-// TODO: Replace with real API endpoints in future integration
 
 export const APP_CONFIG = {
   name: 'SONA AI',
@@ -8,30 +7,30 @@ export const APP_CONFIG = {
   description: 'Your intelligent AI companion',
 };
 
-// TODO: Configure Gemini AI endpoint
+// Gemini AI endpoint configuration
 export const AI_CONFIG = {
   geminiEndpoint: 'https://generativelanguage.googleapis.com/v1beta',
   geminiModel: 'gemini-2.0-flash',
   maxTokens: 2048,
   temperature: 0.7,
-  // TODO: Add API key from secure storage
-  apiKey: '',
 };
 
-// TODO: Configure Supabase / Firebase
-export const BACKEND_CONFIG = {
-  // Supabase
-  supabaseUrl: '',
-  supabaseAnonKey: '',
-  // Firebase (future)
-  firebaseProjectId: '',
-  firebaseAppId: '',
+// Firebase backend configuration (sourced from environment variables)
+export const FIREBASE_CONFIG = {
+  apiKey: process.env.EXPO_PUBLIC_FIREBASE_API_KEY ?? '',
+  authDomain: process.env.EXPO_PUBLIC_FIREBASE_AUTH_DOMAIN ?? '',
+  projectId: process.env.EXPO_PUBLIC_FIREBASE_PROJECT_ID ?? '',
+  storageBucket: process.env.EXPO_PUBLIC_FIREBASE_STORAGE_BUCKET ?? '',
+  messagingSenderId: process.env.EXPO_PUBLIC_FIREBASE_MESSAGING_SENDER_ID ?? '',
+  appId: process.env.EXPO_PUBLIC_FIREBASE_APP_ID ?? '',
+  measurementId: process.env.EXPO_PUBLIC_FIREBASE_MEASUREMENT_ID ?? '',
 };
 
-// TODO: Configure storage bucket
+// Storage bucket configuration
 export const STORAGE_CONFIG = {
-  bucketName: 'sona-ai-storage',
   maxFileSize: 10 * 1024 * 1024, // 10MB
+  allowedImageTypes: ['image/jpeg', 'image/png', 'image/webp', 'image/gif'],
+  allowedDocTypes: ['application/pdf', 'text/plain', 'application/json'],
 };
 
 export const FEATURE_FLAGS = {
@@ -39,8 +38,8 @@ export const FEATURE_FLAGS = {
   enableImageGen: true,
   enableWebsiteBuilder: true,
   enableApkBuilder: true,
-  enableRealTimeChat: false, // TODO: Enable when backend ready
-  enableCloudSync: false,    // TODO: Enable when Supabase connected
+  enableRealTimeChat: true,
+  enableCloudSync: true,
 };
 
 export const ANIMATION_DURATION = {

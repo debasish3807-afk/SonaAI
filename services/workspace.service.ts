@@ -1,6 +1,6 @@
 /**
  * SONA AI — Workspace & Project Service (Mock Layer)
- * Ready for Supabase/Firebase integration
+ * Ready for Firebase integration
  */
 
 export interface Workspace {

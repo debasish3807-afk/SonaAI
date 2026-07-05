@@ -1,7 +1,25 @@
-import React, { useRef, useEffect, useState } from 'react';
+/**
+ * SONA AI — Chat Screen (Phase 2)
+ * Production-ready AI chat with:
+ *  - Streaming Gemini responses
+ *  - Real-time Firestore sync
+ *  - Conversation drawer (search, pin, rename, delete)
+ *  - Message actions (copy, edit, regenerate, delete)
+ *  - AI typing animation
+ *  - Empty state with suggested prompts
+ *  - Theme-aware Material 3 design
+ */
+
+import React, { useRef, useEffect, useState, useCallback } from 'react';
 import {
-  View, Text, FlatList, StyleSheet, Pressable, KeyboardAvoidingView,
-  Platform, Animated, TextInput, RefreshControl,
+  View,
+  Text,
+  FlatList,
+  StyleSheet,
+  Pressable,
+  KeyboardAvoidingView,
+  Platform,
+  Animated,
 } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -9,43 +27,29 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { useTheme } from '@/hooks/useTheme';
 import { useChat } from '@/hooks/useChat';
 import { ChatBubble } from '@/components/feature/ChatBubble';
-import { Badge } from '@/components/ui/Badge';
-import { BorderRadius, FontSize, FontWeight, Shadow, Spacing } from '@/constants/theme';
+import { ChatInput } from '@/components/feature/ChatInput';
+import { ConversationDrawer } from '@/components/feature/ConversationDrawer';
+import { BorderRadius, FontSize, FontWeight, Spacing } from '@/constants/theme';
+
+// ─── Suggested Prompts ────────────────────────────────────────────────────────
 
 const SUGGESTED_PROMPTS = [
   { text: 'Help me plan my day', icon: 'wb-sunny' },
   { text: 'Explain quantum computing', icon: 'science' },
   { text: 'Write a Python function', icon: 'code' },
   { text: 'Give me creative ideas', icon: 'lightbulb' },
+  { text: 'Summarize a topic', icon: 'article' },
+  { text: 'Debug my code', icon: 'bug-report' },
 ];
 
-export default function ChatScreen() {
-  const { colors, isDark } = useTheme();
-  const { conversation, isTyping, sendMessage, clearConversation } = useChat();
-  const [input, setInput] = useState('');
-  const [isFocused, setIsFocused] = useState(false);
-  const flatListRef = useRef<FlatList>(null);
+// ─── Typing Indicator ─────────────────────────────────────────────────────────
 
-  const typingDot1 = useRef(new Animated.Value(0.3)).current;
-  const typingDot2 = useRef(new Animated.Value(0.3)).current;
-  const typingDot3 = useRef(new Animated.Value(0.3)).current;
-  const inputBarAnim = useRef(new Animated.Value(0)).current;
-  const headerFade = useRef(new Animated.Value(0)).current;
+const TypingIndicator: React.FC<{ colors: any }> = ({ colors }) => {
+  const dot1 = useRef(new Animated.Value(0.3)).current;
+  const dot2 = useRef(new Animated.Value(0.3)).current;
+  const dot3 = useRef(new Animated.Value(0.3)).current;
 
   useEffect(() => {
-    Animated.timing(headerFade, { toValue: 1, duration: 400, useNativeDriver: true }).start();
-  }, []);
-
-  useEffect(() => {
-    Animated.timing(inputBarAnim, {
-      toValue: isFocused ? 1 : 0,
-      duration: 200,
-      useNativeDriver: false,
-    }).start();
-  }, [isFocused]);
-
-  useEffect(() => {
-    if (!isTyping) return;
     const animate = (dot: Animated.Value, delay: number) =>
       Animated.loop(
         Animated.sequence([
@@ -54,71 +58,142 @@ export default function ChatScreen() {
           Animated.timing(dot, { toValue: 0.3, duration: 350, useNativeDriver: true }),
         ])
       );
-    Animated.parallel([
-      animate(typingDot1, 0),
-      animate(typingDot2, 160),
-      animate(typingDot3, 320),
-    ]).start();
-    return () => {
-      typingDot1.stopAnimation();
-      typingDot2.stopAnimation();
-      typingDot3.stopAnimation();
-    };
-  }, [isTyping]);
+    const anim = Animated.parallel([
+      animate(dot1, 0),
+      animate(dot2, 150),
+      animate(dot3, 300),
+    ]);
+    anim.start();
+    return () => anim.stop();
+  }, []);
+
+  return (
+    <View style={styles.typingContainer}>
+      <LinearGradient colors={[colors.primary, colors.secondary]} style={styles.typingAvatar}>
+        <MaterialIcons name="auto-awesome" size={12} color="#fff" />
+      </LinearGradient>
+      <View style={[styles.typingBubble, { backgroundColor: colors.card, borderColor: colors.cardBorder }]}>
+        {[dot1, dot2, dot3].map((dot, i) => (
+          <Animated.View
+            key={i}
+            style={[styles.typingDot, { backgroundColor: colors.primary, opacity: dot }]}
+          />
+        ))}
+      </View>
+    </View>
+  );
+};
+
+// ─── Chat Screen ──────────────────────────────────────────────────────────────
+
+export default function ChatScreen() {
+  const { colors, isDark } = useTheme();
+  const {
+    conversation,
+    conversations,
+    pinnedConversations,
+    recentConversations,
+    isTyping,
+    showDrawer,
+    searchQuery,
+    activeConversationId,
+    sendMessage,
+    copyMessage,
+    editMessage,
+    regenerateResponse,
+    deleteMessage,
+    clearConversation,
+    createConversation,
+    setActiveConversation,
+    renameConversation,
+    pinConversation,
+    unpinConversation,
+    deleteConversation,
+    setSearchQuery,
+    toggleDrawer,
+    setShowDrawer,
+  } = useChat();
+
+  const [editMode, setEditMode] = useState<{ messageId: string; content: string } | null>(null);
+  const flatListRef = useRef<FlatList>(null);
+  const headerFade = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
-    if (conversation?.messages?.length) {
-      setTimeout(() => flatListRef.current?.scrollToEnd({ animated: true }), 120);
-    }
-  }, [conversation?.messages?.length, isTyping]);
+    Animated.timing(headerFade, { toValue: 1, duration: 350, useNativeDriver: true }).start();
+  }, []);
 
-  const handleSend = async () => {
-    const trimmed = input.trim();
-    if (!trimmed) return;
-    setInput('');
-    await sendMessage(trimmed);
-  };
-
+  // Auto-scroll to bottom when new messages arrive
   const messages = conversation?.messages ?? [];
+  useEffect(() => {
+    if (messages.length > 0) {
+      setTimeout(() => flatListRef.current?.scrollToEnd({ animated: true }), 100);
+    }
+  }, [messages.length, isTyping]);
 
-  const inputBorderColor = inputBarAnim.interpolate({
-    inputRange: [0, 1],
-    outputRange: [colors.border, colors.primary],
-  });
+  const handleSend = useCallback((content: string) => {
+    if (editMode) {
+      editMessage(editMode.messageId, content);
+      setEditMode(null);
+    } else {
+      sendMessage(content);
+    }
+  }, [editMode, editMessage, sendMessage]);
+
+  const handleEdit = useCallback((id: string, content: string) => {
+    setEditMode({ messageId: id, content });
+  }, []);
+
+  const handleCancelEdit = useCallback(() => {
+    setEditMode(null);
+  }, []);
 
   return (
     <SafeAreaView style={[styles.safe, { backgroundColor: colors.background }]} edges={['top']}>
       {/* ── Header ── */}
-      <Animated.View style={[styles.header, { borderBottomColor: colors.border, opacity: headerFade }]}>
+      <Animated.View style={[styles.header, { borderBottomColor: isDark ? colors.cardBorder : colors.border, opacity: headerFade }]}>
         <View style={styles.headerLeft}>
-          <LinearGradient colors={['#7C6FFF', '#00D4FF']} style={styles.aiAvatar}>
-            <MaterialIcons name="auto-awesome" size={18} color="#fff" />
+          <Pressable
+            onPress={toggleDrawer}
+            hitSlop={8}
+            style={({ pressed }) => [styles.headerIconBtn, { backgroundColor: isDark ? colors.card : 'rgba(0,0,0,0.04)', opacity: pressed ? 0.7 : 1 }]}
+          >
+            <MaterialIcons name="menu" size={20} color={colors.textSecondary} />
+          </Pressable>
+
+          <LinearGradient colors={[colors.primary, colors.secondary]} style={styles.aiAvatar}>
+            <MaterialIcons name="auto-awesome" size={16} color="#fff" />
           </LinearGradient>
+
           <View>
             <Text style={[styles.aiName, { color: colors.text }]}>SONA AI</Text>
             <View style={styles.statusRow}>
               <View style={[styles.statusDot, { backgroundColor: colors.success }]} />
-              <Text style={[styles.statusText, { color: colors.textMuted }]}>Online · Gemini 2.5 Flash</Text>
+              <Text style={[styles.statusText, { color: colors.textMuted }]}>
+                {isTyping ? 'Typing...' : 'Online'}
+              </Text>
             </View>
           </View>
         </View>
+
         <View style={styles.headerActions}>
           <Pressable
             onPress={clearConversation}
             hitSlop={8}
-            style={({ pressed }) => [styles.iconBtn, { backgroundColor: colors.card, opacity: pressed ? 0.7 : 1 }]}
+            style={({ pressed }) => [styles.headerIconBtn, { backgroundColor: isDark ? colors.card : 'rgba(0,0,0,0.04)', opacity: pressed ? 0.7 : 1 }]}
           >
             <MaterialIcons name="refresh" size={20} color={colors.textSecondary} />
           </Pressable>
           <Pressable
+            onPress={() => createConversation()}
             hitSlop={8}
-            style={({ pressed }) => [styles.iconBtn, { backgroundColor: colors.card, opacity: pressed ? 0.7 : 1 }]}
+            style={({ pressed }) => [styles.headerIconBtn, { backgroundColor: isDark ? colors.card : 'rgba(0,0,0,0.04)', opacity: pressed ? 0.7 : 1 }]}
           >
-            <MaterialIcons name="more-vert" size={20} color={colors.textSecondary} />
+            <MaterialIcons name="add" size={20} color={colors.textSecondary} />
           </Pressable>
         </View>
       </Animated.View>
 
+      {/* ── Main Content ── */}
       <KeyboardAvoidingView
         style={styles.flex}
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
@@ -128,209 +203,228 @@ export default function ChatScreen() {
           /* ── Empty State ── */
           <View style={styles.emptyContainer}>
             <LinearGradient
-              colors={['#7C6FFF33', '#00D4FF11']}
+              colors={[`${colors.primary}30`, `${colors.secondary}10`]}
               style={styles.emptyIconBg}
             >
-              <MaterialIcons name="auto-awesome" size={52} color={colors.primary} />
+              <MaterialIcons name="auto-awesome" size={48} color={colors.primary} />
             </LinearGradient>
+
             <Text style={[styles.emptyTitle, { color: colors.text }]}>How can I help?</Text>
             <Text style={[styles.emptySubtitle, { color: colors.textSecondary }]}>
-              Your intelligent AI companion is ready to assist with anything
+              Your intelligent AI companion is ready to assist
             </Text>
 
             <View style={styles.suggestionsGrid}>
               {SUGGESTED_PROMPTS.map((p) => (
                 <Pressable
                   key={p.text}
-                  onPress={() => setInput(p.text)}
+                  onPress={() => sendMessage(p.text)}
                   style={({ pressed }) => [
                     styles.suggestionChip,
-                    { backgroundColor: colors.card, borderColor: colors.cardBorder, opacity: pressed ? 0.85 : 1 },
+                    {
+                      backgroundColor: isDark ? colors.card : '#fff',
+                      borderColor: isDark ? colors.cardBorder : colors.border,
+                      opacity: pressed ? 0.8 : 1,
+                    },
                   ]}
                 >
-                  <MaterialIcons name={p.icon as any} size={15} color={colors.primary} />
-                  <Text style={[styles.suggestionText, { color: colors.textSecondary }]}>{p.text}</Text>
+                  <MaterialIcons name={p.icon as any} size={14} color={colors.primary} />
+                  <Text style={[styles.suggestionText, { color: colors.textSecondary }]} numberOfLines={1}>
+                    {p.text}
+                  </Text>
                 </Pressable>
               ))}
             </View>
           </View>
         ) : (
+          /* ── Message List ── */
           <FlatList
             ref={flatListRef}
             data={messages}
             keyExtractor={m => m.id}
             renderItem={({ item, index }) => (
-              <ChatBubble message={item} isNew={index === messages.length - 1} />
+              <ChatBubble
+                message={item}
+                isNew={index === messages.length - 1}
+                onCopy={copyMessage}
+                onEdit={item.role === 'user' ? handleEdit : undefined}
+                onRegenerate={item.role === 'assistant' ? regenerateResponse : undefined}
+                onDelete={deleteMessage}
+              />
             )}
             contentContainerStyle={styles.messageList}
             showsVerticalScrollIndicator={false}
-            ListFooterComponent={
-              isTyping ? (
-                <View style={styles.typingContainer}>
-                  <LinearGradient colors={['#7C6FFF', '#00D4FF']} style={styles.aiAvatarSmall}>
-                    <MaterialIcons name="auto-awesome" size={13} color="#fff" />
-                  </LinearGradient>
-                  <View style={[styles.typingBubble, { backgroundColor: colors.card, borderColor: colors.cardBorder }]}>
-                    {[typingDot1, typingDot2, typingDot3].map((dot, i) => (
-                      <Animated.View
-                        key={i}
-                        style={[styles.typingDot, { backgroundColor: colors.primary, opacity: dot }]}
-                      />
-                    ))}
-                  </View>
-                </View>
-              ) : null
-            }
+            ListFooterComponent={isTyping && !messages.some(m => m.isStreaming) ? <TypingIndicator colors={colors} /> : null}
           />
         )}
 
         {/* ── Input Bar ── */}
-        <View style={[styles.inputRow, { backgroundColor: colors.surface, borderTopColor: colors.border }]}>
-          <Pressable
-            hitSlop={8}
-            style={({ pressed }) => [styles.inputIconBtn, { backgroundColor: colors.card, opacity: pressed ? 0.7 : 1 }]}
-          >
-            <MaterialIcons name="add" size={20} color={colors.textSecondary} />
-          </Pressable>
-
-          <Animated.View style={[styles.textInputWrapper, { backgroundColor: colors.card, borderColor: inputBorderColor }]}>
-            <TextInput
-              value={input}
-              onChangeText={setInput}
-              placeholder="Message SONA AI..."
-              placeholderTextColor={colors.textMuted}
-              multiline
-              style={[styles.textInput, { color: colors.text }]}
-              onSubmitEditing={handleSend}
-              returnKeyType="send"
-              onFocus={() => setIsFocused(true)}
-              onBlur={() => setIsFocused(false)}
-            />
-          </Animated.View>
-
-          <Pressable
-            onPress={handleSend}
-            disabled={!input.trim()}
-            style={({ pressed }) => [styles.sendBtn, { opacity: pressed ? 0.8 : 1 }]}
-          >
-            <LinearGradient
-              colors={input.trim() ? ['#7C6FFF', '#4A42CC'] : [colors.card, colors.card]}
-              style={styles.sendBtnInner}
-            >
-              <MaterialIcons
-                name="send"
-                size={18}
-                color={input.trim() ? '#fff' : colors.textMuted}
-              />
-            </LinearGradient>
-          </Pressable>
-        </View>
+        <ChatInput
+          onSend={handleSend}
+          isTyping={isTyping}
+          editMode={editMode}
+          onCancelEdit={handleCancelEdit}
+        />
       </KeyboardAvoidingView>
+
+      {/* ── Conversation Drawer ── */}
+      <ConversationDrawer
+        visible={showDrawer}
+        onClose={() => setShowDrawer(false)}
+        conversations={conversations}
+        pinnedConversations={pinnedConversations}
+        recentConversations={recentConversations}
+        activeConversationId={activeConversationId}
+        searchQuery={searchQuery}
+        onSearchChange={setSearchQuery}
+        onSelectConversation={setActiveConversation}
+        onNewConversation={() => createConversation()}
+        onRenameConversation={renameConversation}
+        onPinConversation={pinConversation}
+        onUnpinConversation={unpinConversation}
+        onDeleteConversation={deleteConversation}
+      />
     </SafeAreaView>
   );
 }
 
+// ─── Styles ───────────────────────────────────────────────────────────────────
+
 const styles = StyleSheet.create({
   safe: { flex: 1 },
   flex: { flex: 1 },
+
+  // Header
   header: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
     paddingHorizontal: Spacing.md,
-    paddingVertical: Spacing.sm + 4,
+    paddingVertical: Spacing.sm + 2,
     borderBottomWidth: StyleSheet.hairlineWidth,
   },
-  headerLeft: { flexDirection: 'row', alignItems: 'center', gap: Spacing.sm },
-  aiAvatar: { width: 42, height: 42, borderRadius: 21, alignItems: 'center', justifyContent: 'center' },
-  aiName: { fontSize: FontSize.base, fontWeight: FontWeight.bold },
-  statusRow: { flexDirection: 'row', alignItems: 'center', gap: 5, marginTop: 1 },
-  statusDot: { width: 7, height: 7, borderRadius: 4 },
-  statusText: { fontSize: FontSize.xxs + 1 },
-  headerActions: { flexDirection: 'row', gap: Spacing.sm },
-  iconBtn: { width: 36, height: 36, borderRadius: BorderRadius.sm, alignItems: 'center', justifyContent: 'center' },
+  headerLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.sm,
+  },
+  headerActions: {
+    flexDirection: 'row',
+    gap: Spacing.xs,
+  },
+  headerIconBtn: {
+    width: 36,
+    height: 36,
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  aiAvatar: {
+    width: 36,
+    height: 36,
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  aiName: {
+    fontSize: FontSize.md,
+    fontWeight: FontWeight.bold,
+    letterSpacing: -0.2,
+  },
+  statusRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+  },
+  statusDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+  },
+  statusText: {
+    fontSize: 10,
+    fontWeight: FontWeight.medium,
+  },
 
+  // Empty state
   emptyContainer: {
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
-    padding: Spacing.xl,
-    gap: Spacing.md,
+    paddingHorizontal: Spacing.xl,
+    gap: Spacing.sm,
   },
   emptyIconBg: {
-    width: 100,
-    height: 100,
-    borderRadius: 50,
+    width: 96,
+    height: 96,
+    borderRadius: 32,
     alignItems: 'center',
     justifyContent: 'center',
+    marginBottom: Spacing.md,
   },
-  emptyTitle: { fontSize: FontSize.xxl, fontWeight: FontWeight.extrabold, textAlign: 'center' },
-  emptySubtitle: { fontSize: FontSize.base, textAlign: 'center', lineHeight: 24, maxWidth: 280 },
+  emptyTitle: {
+    fontSize: FontSize.xxl,
+    fontWeight: FontWeight.bold,
+    letterSpacing: -0.5,
+  },
+  emptySubtitle: {
+    fontSize: FontSize.md,
+    textAlign: 'center',
+    marginBottom: Spacing.md,
+  },
   suggestionsGrid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    gap: Spacing.sm,
     justifyContent: 'center',
-    marginTop: Spacing.sm,
-    width: '100%',
+    gap: Spacing.sm,
+    maxWidth: 360,
   },
   suggestionChip: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
     paddingHorizontal: Spacing.md,
-    paddingVertical: Spacing.sm,
+    paddingVertical: Spacing.sm + 2,
     borderRadius: BorderRadius.full,
     borderWidth: 1,
   },
-  suggestionText: { fontSize: FontSize.sm, fontWeight: '500' },
+  suggestionText: {
+    fontSize: FontSize.sm,
+    fontWeight: FontWeight.medium,
+  },
 
-  messageList: { paddingVertical: Spacing.md, paddingBottom: Spacing.lg },
+  // Message list
+  messageList: {
+    paddingVertical: Spacing.sm,
+    paddingBottom: Spacing.md,
+  },
+
+  // Typing indicator
   typingContainer: {
     flexDirection: 'row',
     alignItems: 'flex-end',
-    paddingHorizontal: Spacing.md,
     gap: Spacing.sm,
-    marginBottom: Spacing.sm,
-    marginTop: 4,
-  },
-  aiAvatarSmall: { width: 30, height: 30, borderRadius: 15, alignItems: 'center', justifyContent: 'center' },
-  typingBubble: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 5,
     paddingHorizontal: Spacing.md,
-    paddingVertical: Spacing.sm + 4,
-    borderRadius: BorderRadius.xl,
-    borderWidth: 1,
-    borderBottomLeftRadius: 4,
+    marginVertical: Spacing.xs,
   },
-  typingDot: { width: 8, height: 8, borderRadius: 4 },
-
-  inputRow: {
-    flexDirection: 'row',
-    alignItems: 'flex-end',
-    paddingHorizontal: Spacing.md,
-    paddingVertical: Spacing.sm,
-    gap: Spacing.sm,
-    borderTopWidth: StyleSheet.hairlineWidth,
-  },
-  inputIconBtn: {
-    width: 42,
-    height: 42,
-    borderRadius: 21,
+  typingAvatar: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  textInputWrapper: {
-    flex: 1,
-    borderRadius: BorderRadius.xxl,
-    borderWidth: 1.5,
+  typingBubble: {
+    flexDirection: 'row',
+    gap: 4,
     paddingHorizontal: Spacing.md,
-    paddingVertical: Spacing.sm,
-    maxHeight: 130,
+    paddingVertical: Spacing.sm + 4,
+    borderRadius: BorderRadius.lg,
+    borderWidth: StyleSheet.hairlineWidth,
   },
-  textInput: { fontSize: FontSize.base, includeFontPadding: false, lineHeight: 22 },
-  sendBtn: { width: 44, height: 44 },
-  sendBtnInner: { width: 44, height: 44, borderRadius: 22, alignItems: 'center', justifyContent: 'center' },
+  typingDot: {
+    width: 7,
+    height: 7,
+    borderRadius: 3.5,
+  },
 });

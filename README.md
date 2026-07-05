@@ -41,7 +41,6 @@ npm run lint
 - React: 19.0.0
 - Expo: ~53.0.12
 - Expo Router: ~5.1.0
-- Supabase: ^2.50.0
 - Other commonly used libraries:  
   - @expo/vector-icons  
   - react-native-paper  

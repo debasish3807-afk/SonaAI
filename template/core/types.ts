@@ -1,26 +1,32 @@
 // @ts-nocheck
-// Supabase configuration
-export interface SupabaseConfig {
-  url: string;
-  anonKey: string;
+// Firebase configuration
+export interface FirebaseConfig {
+  apiKey: string;
+  authDomain: string;
+  projectId: string;
+  storageBucket: string;
+  messagingSenderId: string;
+  appId: string;
+  measurementId?: string;
 }
 
 // Auth module configuration
 export interface AuthConfig {
   enabled?: boolean;
-  profileTableName?: string;
+  providers?: ('email' | 'google' | 'anonymous')[];
   autoCreateProfile?: boolean;
 }
 
-// Future module configuration interfaces
+// Payments module configuration
 export interface PaymentsConfig {
   enabled?: boolean;
   stripePublishableKey?: string;
 }
 
+// Storage module configuration
 export interface StorageConfig {
   enabled?: boolean;
-  defaultBucket?: string;
+  maxFileSize?: number;
 }
 
 // Module configuration union type
@@ -31,19 +37,19 @@ export interface ModuleConfig {
 }
 
 // Main configuration interface
-export interface OnSpaceConfig extends ModuleConfig {
-  supabase: SupabaseConfig;
+export interface AppConfig extends ModuleConfig {
+  firebase: FirebaseConfig;
 }
 
 // Runtime state
 export interface SDKState {
   initialized: boolean;
   enabledModules: string[];
-  config: OnSpaceConfig;
+  config: AppConfig;
 }
 
 // Error type
-export interface OnSpaceError {
+export interface AppError {
   code: string;
   message: string;
   module?: string;

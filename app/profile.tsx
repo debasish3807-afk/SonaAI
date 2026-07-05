@@ -29,7 +29,7 @@ const QUICK_LINKS = [
 export default function ProfileScreen() {
   const { colors, isDark, toggleTheme } = useTheme();
   const router = useRouter();
-  const { user, signOut, updateProfile, isLoading, isGuest } = useAuthStore();
+  const { user, signOut, updateUserProfile, isLoading, isGuest } = useAuthStore();
   const { showAlert } = useAlert();
   const fadeAnim = useRef(new Animated.Value(0)).current;
   const [notifications, setNotifications] = useState(true);
@@ -47,7 +47,7 @@ export default function ProfileScreen() {
 
   const handleSaveName = async () => {
     if (!nameInput.trim()) return;
-    const { error } = await updateProfile({ displayName: nameInput.trim() });
+    const { error } = await updateUserProfile({ displayName: nameInput.trim() });
     if (error) {
       showAlert('Update Failed', error);
     } else {
