@@ -28,12 +28,11 @@ const CATEGORIES = [
 
 export default function MemoryScreen() {
   const { colors, isDark } = useTheme();
-  const { memories, searchQuery, activeCategory, addMemory, updateMemory, deleteMemory, togglePin, setSearch, setCategory } = useMemory();
+  const { memories, searchQuery, activeCategory, addMemory, updateMemory, deleteMemory, togglePin, setSearch, setCategory, isLoading } = useMemory();
   const [showAdd, setShowAdd] = useState(false);
   const [showEdit, setShowEdit] = useState(false);
   const [editingMemory, setEditingMemory] = useState<import('@/stores/useMemoryStore').Memory | null>(null);
   const [refreshing, setRefreshing] = useState(false);
-  const [loading, setLoading] = useState(true);
   const [newTitle, setNewTitle] = useState('');
   const [newContent, setNewContent] = useState('');
   const [newCategory, setNewCategory] = useState<MemoryCategory>('personal');
@@ -47,7 +46,6 @@ export default function MemoryScreen() {
   const modalSlide = useRef(new Animated.Value(300)).current;
 
   useEffect(() => {
-    setTimeout(() => setLoading(false), 600);
     Animated.timing(fadeAnim, { toValue: 1, duration: 400, useNativeDriver: true }).start();
   }, []);
 
@@ -61,7 +59,12 @@ export default function MemoryScreen() {
 
   const handleRefresh = async () => {
     setRefreshing(true);
-    await new Promise(r => setTimeout(r, 1000));
+    // Re-initialize Firestore listener to force-refresh data
+    const store = require('@/stores/useMemoryStore').useMemoryStore.getState();
+    store.cleanup();
+    store.initialize();
+    // Brief delay for UI feedback
+    await new Promise(r => setTimeout(r, 800));
     setRefreshing(false);
   };
 
@@ -160,7 +163,7 @@ export default function MemoryScreen() {
         </ScrollView>
 
         {/* ── List ── */}
-        {loading ? (
+        {isLoading ? (
           <SkeletonList count={4} />
         ) : memories.length === 0 ? (
           <View style={styles.empty}>
