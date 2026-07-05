@@ -1,7 +1,7 @@
 {
   "expo": {
     "name": "SONA AI",
-    "slug": "sona-ai",
+    "slug": "sonaai",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/images/logo.png",
