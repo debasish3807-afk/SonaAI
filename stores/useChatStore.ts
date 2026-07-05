@@ -1,12 +1,15 @@
 import { create } from 'zustand';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { streamChat, ChatMessage } from '@/services/gemini.service';
 
 export interface Message {
   id: string;
   role: 'user' | 'assistant';
   content: string;
   timestamp: Date;
-  isLoading?: boolean;
+  isStreaming?: boolean;
+  isError?: boolean;
+  tokensHint?: number;
 }
 
 export interface Conversation {
@@ -21,32 +24,47 @@ interface ChatState {
   conversations: Conversation[];
   activeConversationId: string | null;
   isTyping: boolean;
+  error: string | null;
+
+  // Derived
   activeConversation: () => Conversation | null;
+
+  // Actions
   createConversation: () => string;
   sendMessage: (content: string) => Promise<void>;
   clearConversation: () => void;
+  clearError: () => void;
   setActiveConversation: (id: string) => void;
+  deleteConversation: (id: string) => void;
   loadConversations: () => Promise<void>;
+  saveConversations: () => Promise<void>;
 }
 
-const STORAGE_KEY = 'sona_conversations';
-
-// Mock AI responses
-const MOCK_RESPONSES = [
-  "I've analyzed your request and here's my comprehensive response. SONA AI is powered by advanced language models that can help you with a wide range of tasks.",
-  "That's a great question! Let me break this down for you with detailed insights and actionable recommendations.",
-  "Based on my analysis, I can see several key factors at play here. Let me walk you through each one carefully.",
-  "I understand what you're looking for. Here's a structured approach that should help you achieve your goals effectively.",
-  "Excellent point! This is a nuanced topic that requires careful consideration. Here's my take on it...",
-  "I've processed your input and have several suggestions that might be helpful. Would you like me to elaborate on any specific aspect?",
-];
+const STORAGE_KEY = 'sona_conversations_v2';
+const MAX_HISTORY_MESSAGES = 20; // last N messages sent to AI for context
 
 const generateId = () => `${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+
+/**
+ * Build the message history to send to Gemini.
+ * Limits to MAX_HISTORY_MESSAGES to avoid token overflow.
+ */
+function buildHistory(messages: Message[]): ChatMessage[] {
+  const relevant = messages
+    .filter(m => !m.isError && !m.isStreaming)
+    .slice(-MAX_HISTORY_MESSAGES);
+
+  return relevant.map(m => ({
+    role: m.role as 'user' | 'assistant',
+    content: m.content,
+  }));
+}
 
 export const useChatStore = create<ChatState>((set, get) => ({
   conversations: [],
   activeConversationId: null,
   isTyping: false,
+  error: null,
 
   activeConversation: () => {
     const { conversations, activeConversationId } = get();
@@ -73,76 +91,191 @@ export const useChatStore = create<ChatState>((set, get) => ({
     set({ activeConversationId: id });
   },
 
+  deleteConversation: (id: string) => {
+    set(state => {
+      const filtered = state.conversations.filter(c => c.id !== id);
+      const newActive =
+        state.activeConversationId === id
+          ? (filtered[0]?.id ?? null)
+          : state.activeConversationId;
+      return { conversations: filtered, activeConversationId: newActive };
+    });
+    get().saveConversations();
+  },
+
+  clearError: () => set({ error: null }),
+
   sendMessage: async (content: string) => {
-    const { activeConversationId, conversations, createConversation } = get();
-    let convId = activeConversationId;
+    const state = get();
+    let convId = state.activeConversationId;
     if (!convId) {
-      convId = createConversation();
+      convId = get().createConversation();
     }
 
-    const userMessage: Message = {
+    const userMsg: Message = {
       id: generateId(),
       role: 'user',
       content,
       timestamp: new Date(),
     };
 
-    // Add user message
-    set(state => ({
-      conversations: state.conversations.map(c =>
+    // Add user message & set typing
+    set(st => ({
+      isTyping: true,
+      error: null,
+      conversations: st.conversations.map(c =>
         c.id === convId
           ? {
               ...c,
-              messages: [...c.messages, userMessage],
-              title: c.messages.length === 0 ? content.slice(0, 40) : c.title,
+              messages: [...c.messages, userMsg],
+              title: c.messages.length === 0 ? content.slice(0, 48) : c.title,
               updatedAt: new Date(),
             }
           : c
       ),
-      isTyping: true,
     }));
 
-    // TODO: Replace with real Gemini AI API call
-    await new Promise(resolve => setTimeout(resolve, 1200 + Math.random() * 800));
-
-    const aiResponse: Message = {
-      id: generateId(),
+    // Placeholder streaming message
+    const aiMsgId = generateId();
+    const aiPlaceholder: Message = {
+      id: aiMsgId,
       role: 'assistant',
-      content: MOCK_RESPONSES[Math.floor(Math.random() * MOCK_RESPONSES.length)],
+      content: '',
       timestamp: new Date(),
+      isStreaming: true,
     };
 
-    set(state => ({
-      conversations: state.conversations.map(c =>
+    set(st => ({
+      conversations: st.conversations.map(c =>
         c.id === convId
-          ? { ...c, messages: [...c.messages, aiResponse], updatedAt: new Date() }
+          ? { ...c, messages: [...c.messages, aiPlaceholder] }
           : c
       ),
-      isTyping: false,
     }));
 
-    // Persist
+    // Build history including the new user message
+    const currentConv = get().conversations.find(c => c.id === convId);
+    const historyMessages = buildHistory(
+      (currentConv?.messages ?? []).filter(m => m.id !== aiMsgId)
+    );
+
     try {
-      await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(get().conversations));
-    } catch (_) {}
+      let fullContent = '';
+
+      await streamChat(historyMessages, (chunk) => {
+        if (chunk.delta) {
+          fullContent += chunk.delta;
+          // Update the streaming placeholder in real time
+          set(st => ({
+            conversations: st.conversations.map(c =>
+              c.id === convId
+                ? {
+                    ...c,
+                    messages: c.messages.map(m =>
+                      m.id === aiMsgId
+                        ? { ...m, content: fullContent }
+                        : m
+                    ),
+                  }
+                : c
+            ),
+          }));
+        }
+        if (chunk.done) {
+          // Finalize message
+          set(st => ({
+            isTyping: false,
+            conversations: st.conversations.map(c =>
+              c.id === convId
+                ? {
+                    ...c,
+                    messages: c.messages.map(m =>
+                      m.id === aiMsgId
+                        ? { ...m, content: fullContent || m.content, isStreaming: false, timestamp: new Date() }
+                        : m
+                    ),
+                    updatedAt: new Date(),
+                  }
+                : c
+            ),
+          }));
+          get().saveConversations();
+        }
+      });
+    } catch (err) {
+      const errorMessage = String(err).replace('Error: ', '');
+      console.error('[useChatStore] sendMessage error:', err);
+
+      // Replace placeholder with error message
+      set(st => ({
+        isTyping: false,
+        error: errorMessage,
+        conversations: st.conversations.map(c =>
+          c.id === convId
+            ? {
+                ...c,
+                messages: c.messages.map(m =>
+                  m.id === aiMsgId
+                    ? {
+                        ...m,
+                        content: `Sorry, I encountered an error. Please try again.\n\n_${errorMessage}_`,
+                        isStreaming: false,
+                        isError: true,
+                        timestamp: new Date(),
+                      }
+                    : m
+                ),
+              }
+            : c
+        ),
+      }));
+    }
   },
 
   clearConversation: () => {
     const { activeConversationId } = get();
     set(state => ({
       conversations: state.conversations.map(c =>
-        c.id === activeConversationId ? { ...c, messages: [] } : c
+        c.id === activeConversationId
+          ? { ...c, messages: [], title: 'New Conversation', updatedAt: new Date() }
+          : c
       ),
     }));
+    get().saveConversations();
   },
 
   loadConversations: async () => {
     try {
       const data = await AsyncStorage.getItem(STORAGE_KEY);
       if (data) {
-        const parsed = JSON.parse(data);
-        set({ conversations: parsed });
+        const parsed: Conversation[] = JSON.parse(data);
+        // Rehydrate Date objects
+        const rehydrated = parsed.map(c => ({
+          ...c,
+          createdAt: new Date(c.createdAt),
+          updatedAt: new Date(c.updatedAt),
+          messages: c.messages
+            .filter(m => !m.isStreaming) // drop any incomplete streaming msgs
+            .map(m => ({ ...m, timestamp: new Date(m.timestamp) })),
+        }));
+        set({ conversations: rehydrated });
       }
-    } catch (_) {}
+    } catch (err) {
+      console.warn('[useChatStore] loadConversations error:', err);
+    }
+  },
+
+  saveConversations: async () => {
+    try {
+      const { conversations } = get();
+      // Only persist completed conversations (no streaming placeholders)
+      const toSave = conversations.map(c => ({
+        ...c,
+        messages: c.messages.filter(m => !m.isStreaming),
+      }));
+      await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(toSave));
+    } catch (err) {
+      console.warn('[useChatStore] saveConversations error:', err);
+    }
   },
 }));

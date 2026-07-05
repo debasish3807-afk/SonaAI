@@ -98,7 +98,7 @@ export default function ChatScreen() {
             <Text style={[styles.aiName, { color: colors.text }]}>SONA AI</Text>
             <View style={styles.statusRow}>
               <View style={[styles.statusDot, { backgroundColor: colors.success }]} />
-              <Text style={[styles.statusText, { color: colors.textMuted }]}>Online · GPT-powered</Text>
+              <Text style={[styles.statusText, { color: colors.textMuted }]}>Online · Gemini 2.5 Flash</Text>
             </View>
           </View>
         </View>
