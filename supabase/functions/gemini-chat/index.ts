@@ -1,12 +1,15 @@
 /**
  * SONA AI — Gemini Chat Edge Function
- * Model: google/gemini-2.5-flash (via OnSpace AI)
+ * Model: gemini-2.5-flash (Official Google Gemini API)
  * Supports: streaming SSE, conversation history, system prompt
  */
 
 import { corsHeaders } from '../_shared/cors.ts';
 
 const SYSTEM_PROMPT = `You are SONA AI, an intelligent and helpful AI assistant. You are knowledgeable, concise, and friendly. You can help with coding, writing, analysis, brainstorming, answering questions, and much more. Format your responses using markdown when appropriate — use **bold** for emphasis, \`code\` for inline code, and code blocks for multi-line code. Keep responses focused and well-structured.`;
+
+// Official Google Gemini OpenAI-compatible base URL
+const GEMINI_BASE_URL = 'https://generativelanguage.googleapis.com/v1beta/openai';
 
 Deno.serve(async (req: Request) => {
   // Handle CORS preflight
@@ -15,12 +18,11 @@ Deno.serve(async (req: Request) => {
   }
 
   try {
-    const apiKey = Deno.env.get('ONSPACE_AI_API_KEY');
-    const baseUrl = Deno.env.get('ONSPACE_AI_BASE_URL');
+    const apiKey = Deno.env.get('GEMINI_API_KEY');
 
-    if (!apiKey || !baseUrl) {
+    if (!apiKey) {
       return new Response(
-        JSON.stringify({ error: 'AI service not configured' }),
+        JSON.stringify({ error: 'Gemini API key not configured' }),
         { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
@@ -44,16 +46,16 @@ Deno.serve(async (req: Request) => {
       ...messages,
     ];
 
-    console.log(`[gemini-chat] model=google/gemini-2.5-flash messages=${messages.length} stream=${stream}`);
+    console.log(`[gemini-chat] model=gemini-2.5-flash messages=${messages.length} stream=${stream}`);
 
-    const aiResponse = await fetch(`${baseUrl}/chat/completions`, {
+    const aiResponse = await fetch(`${GEMINI_BASE_URL}/chat/completions`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         'Authorization': `Bearer ${apiKey}`,
       },
       body: JSON.stringify({
-        model: 'google/gemini-2.5-flash',
+        model: 'gemini-2.5-flash',
         messages: fullMessages,
         stream,
         max_tokens: 2048,
