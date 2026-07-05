@@ -28,14 +28,20 @@ const CATEGORIES = [
 
 export default function MemoryScreen() {
   const { colors, isDark } = useTheme();
-  const { memories, searchQuery, activeCategory, addMemory, deleteMemory, togglePin, setSearch, setCategory } = useMemory();
+  const { memories, searchQuery, activeCategory, addMemory, updateMemory, deleteMemory, togglePin, setSearch, setCategory } = useMemory();
   const [showAdd, setShowAdd] = useState(false);
+  const [showEdit, setShowEdit] = useState(false);
+  const [editingMemory, setEditingMemory] = useState<import('@/stores/useMemoryStore').Memory | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   const [loading, setLoading] = useState(true);
   const [newTitle, setNewTitle] = useState('');
   const [newContent, setNewContent] = useState('');
   const [newCategory, setNewCategory] = useState<MemoryCategory>('personal');
   const [newTags, setNewTags] = useState('');
+  const [editTitle, setEditTitle] = useState('');
+  const [editContent, setEditContent] = useState('');
+  const [editCategory, setEditCategory] = useState<MemoryCategory>('personal');
+  const [editTags, setEditTags] = useState('');
 
   const fadeAnim = useRef(new Animated.Value(0)).current;
   const modalSlide = useRef(new Animated.Value(300)).current;
@@ -72,8 +78,28 @@ export default function MemoryScreen() {
     setShowAdd(false);
   };
 
+  const handleOpenEdit = (memory: import('@/stores/useMemoryStore').Memory) => {
+    setEditingMemory(memory);
+    setEditTitle(memory.title);
+    setEditContent(memory.content);
+    setEditCategory(memory.category);
+    setEditTags(memory.tags.join(', '));
+    setShowEdit(true);
+  };
+
+  const handleSaveEdit = () => {
+    if (!editingMemory || !editTitle.trim() || !editContent.trim()) return;
+    updateMemory(editingMemory.id, {
+      title: editTitle.trim(),
+      content: editContent.trim(),
+      category: editCategory,
+      tags: editTags.split(',').map(t => t.trim()).filter(Boolean),
+    });
+    setShowEdit(false);
+    setEditingMemory(null);
+  };
+
   const pinnedMemories = memories.filter(m => m.isPinned);
-  const unpinnedMemories = memories.filter(m => !m.isPinned);
 
   return (
     <SafeAreaView style={[styles.safe, { backgroundColor: colors.background }]} edges={['top']}>
@@ -159,6 +185,7 @@ export default function MemoryScreen() {
             renderItem={({ item }) => (
               <MemoryCard
                 memory={item}
+                onPress={() => handleOpenEdit(item)}
                 onPin={() => togglePin(item.id)}
                 onDelete={() => deleteMemory(item.id)}
               />
@@ -270,6 +297,99 @@ export default function MemoryScreen() {
               <PremiumButton
                 label="Save Memory"
                 onPress={handleAdd}
+                icon="check"
+                style={{ flex: 2 }}
+              />
+            </View>
+          </Animated.View>
+        </KeyboardAvoidingView>
+      </Modal>
+
+      {/* ── Edit Memory Sheet ── */}
+      <Modal visible={showEdit} animationType="fade" transparent statusBarTranslucent>
+        <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={styles.modalOverlay}>
+          <Pressable style={styles.modalBackdrop} onPress={() => setShowEdit(false)} />
+          <Animated.View
+            style={[
+              styles.modalContent,
+              { backgroundColor: colors.surface },
+            ]}
+          >
+            <View style={[styles.modalHandle, { backgroundColor: colors.border }]} />
+
+            <View style={styles.modalHeader}>
+              <Text style={[styles.modalTitle, { color: colors.text }]}>Edit Memory</Text>
+              <Pressable
+                onPress={() => setShowEdit(false)}
+                style={({ pressed }) => [styles.closeBtn, { backgroundColor: colors.card, opacity: pressed ? 0.7 : 1 }]}
+              >
+                <MaterialIcons name="close" size={18} color={colors.textSecondary} />
+              </Pressable>
+            </View>
+
+            <ScrollView showsVerticalScrollIndicator={false}>
+              <Input
+                label="Title"
+                placeholder="Give this memory a title..."
+                value={editTitle}
+                onChangeText={setEditTitle}
+                leftIcon="title"
+              />
+
+              <View style={{ height: Spacing.md }} />
+              <Input
+                label="Content"
+                placeholder="What do you want to remember?"
+                value={editContent}
+                onChangeText={setEditContent}
+                multiline
+                numberOfLines={4}
+              />
+
+              <View style={{ height: Spacing.md }} />
+              <Input
+                label="Tags"
+                placeholder="react, goals, health (comma separated)"
+                value={editTags}
+                onChangeText={setEditTags}
+                leftIcon="label"
+                hint="Separate tags with commas"
+              />
+
+              <Text style={[styles.catSectionLabel, { color: colors.textSecondary }]}>Category</Text>
+              <View style={styles.catGrid}>
+                {CATEGORIES.filter(c => c.key !== 'all').map(cat => (
+                  <Pressable
+                    key={cat.key}
+                    onPress={() => setEditCategory(cat.key as MemoryCategory)}
+                    style={[
+                      styles.catBtn,
+                      {
+                        backgroundColor: editCategory === cat.key ? `${cat.color}22` : colors.card,
+                        borderColor: editCategory === cat.key ? cat.color : colors.cardBorder,
+                        borderWidth: editCategory === cat.key ? 1.5 : 1,
+                      },
+                    ]}
+                  >
+                    <MaterialIcons name={cat.icon as any} size={16} color={editCategory === cat.key ? cat.color : colors.textMuted} />
+                    <Text style={[styles.catBtnText, { color: editCategory === cat.key ? cat.color : colors.textSecondary }]}>
+                      {cat.label}
+                    </Text>
+                  </Pressable>
+                ))}
+              </View>
+            </ScrollView>
+
+            <View style={styles.modalActions}>
+              <PremiumButton
+                label="Cancel"
+                onPress={() => setShowEdit(false)}
+                variant="outline"
+                style={{ flex: 1 }}
+              />
+              <PremiumButton
+                label="Save Changes"
+                onPress={handleSaveEdit}
                 icon="check"
                 style={{ flex: 2 }}
               />
