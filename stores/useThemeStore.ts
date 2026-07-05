@@ -3,10 +3,11 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Colors } from '@/constants/theme';
 
 type ThemeMode = 'dark' | 'light';
+type ThemeColors = typeof Colors.dark | typeof Colors.light;
 
 interface ThemeState {
   mode: ThemeMode;
-  colors: typeof Colors.dark;
+  colors: ThemeColors;
   isDark: boolean;
   toggleTheme: () => void;
   setTheme: (mode: ThemeMode) => void;

@@ -5,7 +5,7 @@ export { Input } from './Input';
 export { Badge } from './Badge';
 export { GlassCard } from './GlassCard';
 export { PremiumButton } from './PremiumButton';
-export { SkeletonLoader, SkeletonCard } from './SkeletonLoader';
+export { Skeleton as SkeletonLoader, SkeletonCard } from './SkeletonLoader';
 export { Chip } from './Chip';
 export { Dialog } from './Dialog';
 export { BottomSheet } from './BottomSheet';

@@ -1,19 +1,17 @@
 /**
  * SONA AI — Gemini AI Service
- * Powered by OnSpace AI (google/gemini-2.5-flash)
+ * Powered by Google Gemini API with Firebase Auth integration
  *
  * Features:
- *  - Streaming chat responses via Edge Function SSE
- *  - Non-streaming fallback
+ *  - Streaming chat responses via Gemini API SSE
+ *  - Non-streaming fallback for mobile platforms
+ *  - Firebase Auth token injection for authenticated requests
  *  - Conversation history management
  *  - Retry on transient failures
  *  - Markdown-ready response text
- *
- * API keys are stored server-side in Edge Function env vars.
- * No keys are ever exposed to the client.
  */
 
-import { getSupabaseClient } from '@/template';
+import { auth } from '@/services/firebase';
 
 export interface ChatMessage {
   role: 'user' | 'assistant' | 'system';
@@ -25,18 +23,65 @@ export interface StreamChunk {
   done: boolean;
 }
 
-const EDGE_FUNCTION = 'gemini-chat';
 const MAX_RETRIES = 2;
 const RETRY_DELAY_MS = 1000;
+const GEMINI_MODEL = 'gemini-2.0-flash';
 
 function sleep(ms: number) {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
 
+function getGeminiApiKey(): string {
+  return process.env.EXPO_PUBLIC_GEMINI_API_KEY ?? '';
+}
+
+function getGeminiEndpoint(): string {
+  const apiKey = getGeminiApiKey();
+  return `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:streamGenerateContent?alt=sse&key=${apiKey}`;
+}
+
+function getGeminiNonStreamEndpoint(): string {
+  const apiKey = getGeminiApiKey();
+  return `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${apiKey}`;
+}
+
+/**
+ * Retrieves the current Firebase Auth ID token for authenticated API calls.
+ * Returns an empty string if the user is not authenticated.
+ */
+async function getAuthToken(): Promise<string> {
+  const user = auth.currentUser;
+  if (!user) return '';
+  try {
+    return await user.getIdToken();
+  } catch {
+    return '';
+  }
+}
+
+function formatMessagesForGemini(messages: ChatMessage[]) {
+  const systemMessages = messages.filter(m => m.role === 'system');
+  const conversationMessages = messages.filter(m => m.role !== 'system');
+
+  const contents = conversationMessages.map(msg => ({
+    role: msg.role === 'assistant' ? 'model' : 'user',
+    parts: [{ text: msg.content }],
+  }));
+
+  const body: Record<string, any> = { contents };
+
+  if (systemMessages.length > 0) {
+    body.systemInstruction = {
+      parts: [{ text: systemMessages.map(m => m.content).join('\n') }],
+    };
+  }
+
+  return body;
+}
+
 /**
  * Send a chat message with streaming.
  * Calls `onChunk` for each text delta received from the model.
- *
  * Falls back to non-streaming on platforms that don't support ReadableStream.
  */
 export async function streamChat(
@@ -44,24 +89,29 @@ export async function streamChat(
   onChunk: (chunk: StreamChunk) => void,
   retryCount = 0
 ): Promise<void> {
-  const supabase = getSupabaseClient();
-  const { data: sessionData } = await supabase.auth.getSession();
-  const token = sessionData?.session?.access_token ?? '';
+  const apiKey = getGeminiApiKey();
+  if (!apiKey) {
+    throw new Error('Gemini API key not configured. Please set EXPO_PUBLIC_GEMINI_API_KEY.');
+  }
 
-  const backendUrl = process.env.EXPO_PUBLIC_SUPABASE_URL;
-  const anonKey = process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY;
+  const endpoint = getGeminiEndpoint();
+  const body = formatMessagesForGemini(messages);
+  const authToken = await getAuthToken();
 
-  const endpoint = `${backendUrl}/functions/v1/${EDGE_FUNCTION}`;
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+  };
+
+  // Attach Firebase Auth token for server-side user identification if available
+  if (authToken) {
+    headers['X-Firebase-Auth'] = authToken;
+  }
 
   try {
     const response = await fetch(endpoint, {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${token || anonKey}`,
-        'apikey': anonKey ?? '',
-      },
-      body: JSON.stringify({ messages, stream: true }),
+      headers,
+      body: JSON.stringify(body),
     });
 
     if (!response.ok) {
@@ -72,7 +122,6 @@ export async function streamChat(
     const reader = response.body?.getReader();
 
     if (reader) {
-      // ── Streaming path ──────────────────────────────────────────────────
       const decoder = new TextDecoder();
       let buffer = '';
 
@@ -96,7 +145,7 @@ export async function streamChat(
 
           try {
             const parsed = JSON.parse(payload);
-            const delta = parsed?.choices?.[0]?.delta?.content ?? '';
+            const delta = parsed?.candidates?.[0]?.content?.parts?.[0]?.text ?? '';
             if (delta) {
               onChunk({ delta, done: false });
             }
@@ -107,11 +156,10 @@ export async function streamChat(
       }
       onChunk({ delta: '', done: true });
     } else {
-      // ── Non-streaming fallback (mobile) ─────────────────────────────────
+      // Non-streaming fallback (mobile)
       const text = await response.text();
       let fullContent = '';
 
-      // Try parsing as SSE events
       const lines = text.split('\n');
       for (const line of lines) {
         const trimmed = line.trim();
@@ -120,33 +168,30 @@ export async function streamChat(
         if (payload === '[DONE]') break;
         try {
           const parsed = JSON.parse(payload);
-          const delta = parsed?.choices?.[0]?.delta?.content ?? '';
+          const delta = parsed?.candidates?.[0]?.content?.parts?.[0]?.text ?? '';
           fullContent += delta;
         } catch {
-          // Try full JSON (non-streaming response)
           try {
             const parsed = JSON.parse(text);
-            fullContent = parsed?.choices?.[0]?.message?.content ?? '';
+            fullContent = parsed?.candidates?.[0]?.content?.parts?.[0]?.text ?? '';
             break;
           } catch { /* ignore */ }
         }
       }
 
       if (!fullContent) {
-        // Last attempt: parse entire body as JSON
         try {
           const parsed = JSON.parse(text);
-          fullContent = parsed?.choices?.[0]?.message?.content ?? '';
+          fullContent = parsed?.candidates?.[0]?.content?.parts?.[0]?.text ?? '';
         } catch { /* ignore */ }
       }
 
       if (fullContent) {
-        // Simulate streaming word-by-word for a better UX
         const words = fullContent.split(' ');
         for (let i = 0; i < words.length; i++) {
           const chunk = (i === 0 ? '' : ' ') + words[i];
           onChunk({ delta: chunk, done: false });
-          await sleep(18); // ~55 wps feel
+          await sleep(18);
         }
       }
       onChunk({ delta: '', done: true });
@@ -169,31 +214,42 @@ export async function sendChat(
   messages: ChatMessage[],
   retryCount = 0
 ): Promise<string> {
-  const supabase = getSupabaseClient();
-  const { data: sessionData } = await supabase.auth.getSession();
-  const token = sessionData?.session?.access_token ?? '';
+  const apiKey = getGeminiApiKey();
+  if (!apiKey) {
+    throw new Error('Gemini API key not configured. Please set EXPO_PUBLIC_GEMINI_API_KEY.');
+  }
 
-  const { data, error } = await supabase.functions.invoke(EDGE_FUNCTION, {
-    headers: { Authorization: `Bearer ${token}` },
-    body: { messages, stream: false },
-  });
+  const endpoint = getGeminiNonStreamEndpoint();
+  const body = formatMessagesForGemini(messages);
+  const authToken = await getAuthToken();
 
-  if (error) {
-    const { FunctionsHttpError } = await import('@supabase/supabase-js');
-    let message = error.message;
-    if (error instanceof FunctionsHttpError) {
-      try {
-        const text = await error.context?.text();
-        message = text || message;
-      } catch { /* ignore */ }
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+  };
+
+  if (authToken) {
+    headers['X-Firebase-Auth'] = authToken;
+  }
+
+  try {
+    const response = await fetch(endpoint, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify(body),
+    });
+
+    if (!response.ok) {
+      const errText = await response.text();
+      throw new Error(`[${response.status}] ${errText || response.statusText}`);
     }
 
+    const data = await response.json();
+    return data?.candidates?.[0]?.content?.parts?.[0]?.text ?? '';
+  } catch (err: any) {
     if (retryCount < MAX_RETRIES) {
       await sleep(RETRY_DELAY_MS * (retryCount + 1));
       return sendChat(messages, retryCount + 1);
     }
-    throw new Error(message);
+    throw new Error(err?.message ?? 'Gemini API request failed');
   }
-
-  return data?.choices?.[0]?.message?.content ?? '';
 }

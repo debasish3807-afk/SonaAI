@@ -742,12 +742,15 @@ class AIProvidersService {
 
   async toggleProvider(id: AIProvider, enabled: boolean): Promise<void> {
     await new Promise(r => setTimeout(r, 200));
-    // TODO: Persist to AsyncStorage / Supabase
+    const AsyncStorage = (await import('@react-native-async-storage/async-storage')).default;
+    const key = `@sona_provider_${id}_enabled`;
+    await AsyncStorage.setItem(key, JSON.stringify(enabled));
   }
 
   async setApiKey(id: AIProvider, key: string): Promise<void> {
     await new Promise(r => setTimeout(r, 200));
-    // TODO: Store in SecureStore
+    const SecureStore = await import('expo-secure-store');
+    await SecureStore.setItemAsync(`sona_api_key_${id}`, key);
   }
 
   async validateApiKey(id: AIProvider, key: string): Promise<boolean> {

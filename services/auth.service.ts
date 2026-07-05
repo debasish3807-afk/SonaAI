@@ -1,19 +1,14 @@
 /**
  * SONA AI — Authentication Service
- * Backend: OnSpace Cloud (Supabase-compatible)
+ * Backend: Firebase Authentication
  *
  * Supports:
  *  - Email / Password sign-in & sign-up
- *  - Google OAuth  (requires Google provider enabled in OnSpace Cloud Dashboard → User → Auth Settings)
- *  - Guest / anonymous mode  (local only, no backend session)
+ *  - Google OAuth (web popup + mobile expo-auth-session)
+ *  - Anonymous / Guest mode (Firebase anonymous auth)
  *  - Forgot password via email reset link
- *  - Session persistence via Supabase session storage
- *  - Protected route helpers
- *
- * To enable Google Sign-In:
- *  1. Go to OnSpace Cloud Dashboard → User → Auth Settings
- *  2. Enable Google provider and add Client ID + Client Secret
- *  3. Add redirect URI:  sonaai://auth/callback
+ *  - Session persistence via Firebase Auth SDK
+ *  - User profiles stored in Cloud Firestore
  */
 
 export { useAuthStore } from '@/stores/useAuthStore';

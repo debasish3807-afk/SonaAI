@@ -1,5 +1,4 @@
 // @ts-nocheck
-import { User } from '@supabase/supabase-js';
 
 export interface AuthUser {
   id: string;
@@ -58,8 +57,6 @@ export interface AuthContextType {
 }
 
 export interface AuthConfig {
-  supabaseUrl: string;
-  supabaseAnonKey: string;
   profileTableName?: string;
 }
 

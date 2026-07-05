@@ -3,9 +3,8 @@
  * Deep link: sonaai://auth/callback
  *
  * After Google (or any OAuth provider) redirects back to the app,
- * Expo Router resolves this route. The Supabase client automatically
- * detects the #access_token / ?code= fragment in the URL and
- * completes the session exchange. We simply wait for the auth state
+ * Expo Router resolves this route. The Firebase client handles
+ * the OAuth token exchange. We simply wait for the auth state
  * to settle then redirect to the main app.
  */
 
@@ -14,7 +13,6 @@ import { View, ActivityIndicator, Text, StyleSheet } from 'react-native';
 import { useRouter } from 'expo-router';
 import { LinearGradient } from 'expo-linear-gradient';
 import { MaterialIcons } from '@expo/vector-icons';
-import { getSupabaseClient } from '@/template';
 import { useAuthStore } from '@/stores/useAuthStore';
 
 export default function AuthCallbackScreen() {
@@ -25,27 +23,25 @@ export default function AuthCallbackScreen() {
     let timeout: ReturnType<typeof setTimeout>;
 
     const handleCallback = async () => {
-      const supabase = getSupabaseClient();
-
-      // Give Supabase a moment to exchange the token from the URL fragment
+      // Give Firebase a moment to process the OAuth callback
       await new Promise(resolve => setTimeout(resolve, 800));
 
-      const { data: { session } } = await supabase.auth.getSession();
+      // Re-initialize store to pick up the authenticated session
+      await initialize();
 
-      if (session?.user) {
-        // Re-initialize store with the new session
-        await initialize();
+      const { user } = useAuthStore.getState();
+      if (user) {
         router.replace('/(tabs)' as any);
       } else {
-        // No session yet — retry once more after a short delay
+        // Retry once more after a short delay
         timeout = setTimeout(async () => {
-          const { data: { session: retrySession } } = await supabase.auth.getSession();
-          if (retrySession?.user) {
-            await initialize();
+          await initialize();
+          const { user: retryUser } = useAuthStore.getState();
+          if (retryUser) {
             router.replace('/(tabs)' as any);
           } else {
             // Failed — go back to login
-            router.replace('/login');
+            router.replace('/login' as any);
           }
         }, 1500);
       }
@@ -66,7 +62,7 @@ export default function AuthCallbackScreen() {
 
       <ActivityIndicator size="large" color="#7C6FFF" style={styles.spinner} />
 
-      <Text style={styles.title}>Signing you in…</Text>
+      <Text style={styles.title}>Signing you in...</Text>
       <Text style={styles.subtitle}>Please wait while we complete authentication</Text>
 
       <View style={styles.providerRow}>
