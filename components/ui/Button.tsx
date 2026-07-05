@@ -1,5 +1,5 @@
-import React from 'react';
-import { Pressable, Text, StyleSheet, ActivityIndicator, ViewStyle, TextStyle } from 'react-native';
+import React, { useRef } from 'react';
+import { Pressable, Text, StyleSheet, ActivityIndicator, ViewStyle, Animated } from 'react-native';
 import { useTheme } from '@/hooks/useTheme';
 import { BorderRadius, FontSize, FontWeight, Spacing } from '@/constants/theme';
 
@@ -14,82 +14,79 @@ interface ButtonProps {
   loading?: boolean;
   disabled?: boolean;
   style?: ViewStyle;
-  textStyle?: TextStyle;
   fullWidth?: boolean;
 }
 
 export const Button: React.FC<ButtonProps> = ({
   label, onPress, variant = 'primary', size = 'md',
-  loading = false, disabled = false, style, textStyle, fullWidth = false,
+  loading = false, disabled = false, style, fullWidth = false,
 }) => {
   const { colors } = useTheme();
+  const scale = useRef(new Animated.Value(1)).current;
 
-  const getSizeStyle = (): ViewStyle => {
-    switch (size) {
-      case 'sm': return { paddingVertical: Spacing.xs, paddingHorizontal: Spacing.md, minHeight: 36 };
-      case 'lg': return { paddingVertical: Spacing.md, paddingHorizontal: Spacing.xl, minHeight: 56 };
-      default: return { paddingVertical: Spacing.sm + 4, paddingHorizontal: Spacing.lg, minHeight: 48 };
-    }
+  const handlePressIn = () => {
+    Animated.spring(scale, { toValue: 0.96, useNativeDriver: true, tension: 90, friction: 10 }).start();
+  };
+  const handlePressOut = () => {
+    Animated.spring(scale, { toValue: 1, useNativeDriver: true, tension: 65, friction: 9 }).start();
   };
 
-  const getVariantStyle = (pressed: boolean): ViewStyle => {
-    const opacity = (disabled || loading) ? 0.5 : pressed ? 0.85 : 1;
-    const base: ViewStyle = { opacity, borderRadius: BorderRadius.lg };
+  const heights = { sm: 36, md: 48, lg: 56 };
+  const fontSizes = { sm: FontSize.sm, md: FontSize.base, lg: FontSize.lg };
+  const padH = { sm: Spacing.md, md: Spacing.lg, lg: Spacing.xl };
+
+  const getBg = () => {
     switch (variant) {
-      case 'primary': return { ...base, backgroundColor: colors.primary };
-      case 'secondary': return { ...base, backgroundColor: colors.secondary };
-      case 'outline': return { ...base, backgroundColor: 'transparent', borderWidth: 1.5, borderColor: colors.primary };
-      case 'ghost': return { ...base, backgroundColor: 'transparent' };
-      case 'danger': return { ...base, backgroundColor: colors.error };
-      default: return base;
+      case 'primary': return colors.primary;
+      case 'secondary': return colors.secondary;
+      case 'danger': return colors.error;
+      case 'outline': case 'ghost': return 'transparent';
+      default: return colors.primary;
     }
   };
 
   const getTextColor = () => {
-    if (variant === 'ghost') return colors.primary;
-    if (variant === 'outline') return colors.primary;
-    return '#FFFFFF';
-  };
-
-  const getTextSize = () => {
-    switch (size) {
-      case 'sm': return FontSize.sm;
-      case 'lg': return FontSize.lg;
-      default: return FontSize.base;
-    }
+    if (variant === 'ghost' || variant === 'outline') return colors.primary;
+    return '#fff';
   };
 
   return (
     <Pressable
       onPress={onPress}
+      onPressIn={handlePressIn}
+      onPressOut={handlePressOut}
       disabled={disabled || loading}
-      style={({ pressed }) => [
-        styles.base,
-        getSizeStyle(),
-        getVariantStyle(pressed),
-        fullWidth && styles.fullWidth,
-        style,
-      ]}
       accessibilityLabel={label}
       accessibilityRole="button"
+      style={[{ opacity: disabled || loading ? 0.5 : 1 }, fullWidth && { width: '100%' }, style]}
     >
-      {loading ? (
-        <ActivityIndicator size="small" color={getTextColor()} />
-      ) : (
-        <Text style={[styles.text, { color: getTextColor(), fontSize: getTextSize() }, textStyle]}>
-          {label}
-        </Text>
-      )}
+      <Animated.View
+        style={[
+          styles.base,
+          {
+            height: heights[size],
+            paddingHorizontal: padH[size],
+            backgroundColor: getBg(),
+            borderRadius: BorderRadius.lg,
+            borderWidth: variant === 'outline' ? 1.5 : 0,
+            borderColor: variant === 'outline' ? colors.primary : 'transparent',
+            transform: [{ scale }],
+          },
+        ]}
+      >
+        {loading ? (
+          <ActivityIndicator size="small" color={getTextColor()} />
+        ) : (
+          <Text style={[styles.text, { color: getTextColor(), fontSize: fontSizes[size] }]}>
+            {label}
+          </Text>
+        )}
+      </Animated.View>
     </Pressable>
   );
 };
 
 const styles = StyleSheet.create({
-  base: {
-    alignItems: 'center',
-    justifyContent: 'center',
-    flexDirection: 'row',
-  },
-  fullWidth: { width: '100%' },
+  base: { alignItems: 'center', justifyContent: 'center', flexDirection: 'row' },
   text: { fontWeight: FontWeight.semibold, letterSpacing: 0.3 },
 });
