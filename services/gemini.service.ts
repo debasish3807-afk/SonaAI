@@ -1,17 +1,17 @@
 /**
  * SONA AI — Gemini AI Service
- * Powered by Google Gemini API with Firebase Auth integration
+ * Powered by Google AI Studio Gemini API
+ *
+ * Authentication: API key via query parameter (no OAuth/Bearer)
+ * Endpoint: https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash
  *
  * Features:
- *  - Streaming chat responses via Gemini API SSE
+ *  - Streaming chat responses via SSE
  *  - Non-streaming fallback for mobile platforms
- *  - Firebase Auth token injection for authenticated requests
  *  - Conversation history management
  *  - Retry on transient failures
  *  - Markdown-ready response text
  */
-
-import { auth } from '@/services/firebase';
 
 export interface ChatMessage {
   role: 'user' | 'assistant' | 'system';
@@ -25,7 +25,7 @@ export interface StreamChunk {
 
 const MAX_RETRIES = 2;
 const RETRY_DELAY_MS = 1000;
-const GEMINI_MODEL = 'gemini-2.0-flash';
+const GEMINI_MODEL = 'gemini-2.5-flash';
 
 function sleep(ms: number) {
   return new Promise(resolve => setTimeout(resolve, ms));
@@ -35,28 +35,14 @@ function getGeminiApiKey(): string {
   return process.env.EXPO_PUBLIC_GEMINI_API_KEY ?? '';
 }
 
-function getGeminiEndpoint(): string {
+function getStreamEndpoint(): string {
   const apiKey = getGeminiApiKey();
   return `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:streamGenerateContent?alt=sse&key=${apiKey}`;
 }
 
-function getGeminiNonStreamEndpoint(): string {
+function getNonStreamEndpoint(): string {
   const apiKey = getGeminiApiKey();
   return `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${apiKey}`;
-}
-
-/**
- * Retrieves the current Firebase Auth ID token for authenticated API calls.
- * Returns an empty string if the user is not authenticated.
- */
-async function getAuthToken(): Promise<string> {
-  const user = auth.currentUser;
-  if (!user) return '';
-  try {
-    return await user.getIdToken();
-  } catch {
-    return '';
-  }
 }
 
 function formatMessagesForGemini(messages: ChatMessage[]) {
@@ -82,7 +68,7 @@ function formatMessagesForGemini(messages: ChatMessage[]) {
 /**
  * Send a chat message with streaming.
  * Calls `onChunk` for each text delta received from the model.
- * Falls back to non-streaming on platforms that don't support ReadableStream.
+ * Falls back to non-streaming on platforms without ReadableStream.
  */
 export async function streamChat(
   messages: ChatMessage[],
@@ -94,23 +80,13 @@ export async function streamChat(
     throw new Error('Gemini API key not configured. Please set EXPO_PUBLIC_GEMINI_API_KEY.');
   }
 
-  const endpoint = getGeminiEndpoint();
+  const endpoint = getStreamEndpoint();
   const body = formatMessagesForGemini(messages);
-  const authToken = await getAuthToken();
-
-  const headers: Record<string, string> = {
-    'Content-Type': 'application/json',
-  };
-
-  // Attach Firebase Auth token for server-side user identification if available
-  if (authToken) {
-    headers['X-Firebase-Auth'] = authToken;
-  }
 
   try {
     const response = await fetch(endpoint, {
       method: 'POST',
-      headers,
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
     });
 
@@ -198,7 +174,6 @@ export async function streamChat(
     }
   } catch (err) {
     if (retryCount < MAX_RETRIES) {
-      console.warn(`[gemini-service] Retry ${retryCount + 1}/${MAX_RETRIES}:`, err);
       await sleep(RETRY_DELAY_MS * (retryCount + 1));
       return streamChat(messages, onChunk, retryCount + 1);
     }
@@ -219,22 +194,13 @@ export async function sendChat(
     throw new Error('Gemini API key not configured. Please set EXPO_PUBLIC_GEMINI_API_KEY.');
   }
 
-  const endpoint = getGeminiNonStreamEndpoint();
+  const endpoint = getNonStreamEndpoint();
   const body = formatMessagesForGemini(messages);
-  const authToken = await getAuthToken();
-
-  const headers: Record<string, string> = {
-    'Content-Type': 'application/json',
-  };
-
-  if (authToken) {
-    headers['X-Firebase-Auth'] = authToken;
-  }
 
   try {
     const response = await fetch(endpoint, {
       method: 'POST',
-      headers,
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
     });
 
